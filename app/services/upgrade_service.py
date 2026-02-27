@@ -13,6 +13,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import AsyncSessionLocal
 from app.models import Device, FirmwareFile, JobStatus, UpgradeJob
@@ -54,12 +55,14 @@ def run_upgrade_job(job_id: int) -> None:
 async def _async_run_upgrade_job(job_id: int) -> None:
     """Full async upgrade workflow."""
     async with AsyncSessionLocal() as db:
-        # Load job with related objects
+        # Load job with all related objects eagerly — lazy loading raises MissingGreenlet in async context
         result = await db.execute(
             select(UpgradeJob)
             .where(UpgradeJob.id == job_id)
-            .join(UpgradeJob.device)
-            .join(UpgradeJob.firmware)
+            .options(
+                selectinload(UpgradeJob.device).selectinload(Device.customer),
+                selectinload(UpgradeJob.firmware),
+            )
         )
         job = result.scalar_one_or_none()
         if not job:

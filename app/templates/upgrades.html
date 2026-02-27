@@ -22,7 +22,7 @@
     <table class="table table-hover mb-0" id="jobs-table">
       <thead><tr>
         <th>ID</th><th>Device</th><th>Customer</th><th>Firmware</th>
-        <th>Status</th><th>Scheduled</th><th>Started</th><th>Completed</th><th></th>
+        <th>Status</th><th>Progress</th><th>Started</th><th>Completed</th><th></th>
       </tr></thead>
       <tbody><tr><td colspan="9" class="text-center text-muted py-4">Loading…</td></tr></tbody>
     </table>
@@ -52,10 +52,31 @@
 {% block scripts %}
 <script>
 let pollInterval = null;
+let tableInterval = null;
 let activeJobId = null;
 const ACTIVE = ['pending','login','scraping','validating','backing_up','uploading','rebooting','verifying'];
 
+const STATUS_LABEL = {
+  pending:    'Queued — waiting to start',
+  login:      'Logging in to device…',
+  scraping:   'Reading device upgrade page…',
+  validating: 'Running pre-upgrade checks…',
+  backing_up: 'Backing up device config…',
+  uploading:  'Uploading firmware to device…',
+  rebooting:  'Installing firmware / rebooting…',
+  verifying:  'Verifying new firmware version…',
+  complete:   '',
+  failed:     '',
+  cancelled:  '',
+};
+
 document.getElementById('filter-status').addEventListener('change', loadJobs);
+
+function lastLogLine(log) {
+  if (!log) return '';
+  const lines = log.trim().split('\n').filter(l => l.trim());
+  return lines.length ? lines[lines.length - 1].replace(/^\[.*?\]\s*/, '') : '';
+}
 
 async function loadJobs() {
   const status = document.getElementById('filter-status').value;
@@ -64,22 +85,44 @@ async function loadJobs() {
   const tbody = document.querySelector('#jobs-table tbody');
   if (!jobs.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No jobs found</td></tr>';
+    resetTableInterval(false);
     return;
   }
-  tbody.innerHTML = jobs.map(j => `
-    <tr style="cursor:pointer" onclick="openLog(${j.id})">
+
+  const hasActive = jobs.some(j => ACTIVE.includes(j.status));
+  resetTableInterval(hasActive);
+
+  tbody.innerHTML = jobs.map(j => {
+    const isActive = ACTIVE.includes(j.status);
+    const last = lastLogLine(j.log);
+    const progressText = isActive
+      ? (last || STATUS_LABEL[j.status] || '')
+      : (j.status === 'failed' ? lastLogLine(j.log) : '');
+    return `
+    <tr class="${isActive ? 'table-active' : ''}" style="cursor:pointer" onclick="openLog(${j.id})">
       <td class="text-muted">#${j.id}</td>
-      <td>${j.device_name||'—'}</td>
-      <td>${j.customer_name||'—'}</td>
+      <td class="fw-semibold">${j.device_name||'—'}</td>
+      <td class="text-muted">${j.customer_name||'—'}</td>
       <td><small>${j.firmware_filename||'—'}</small></td>
-      <td>${statusBadge(j.status)}</td>
-      <td><small>${fmtDate(j.scheduled_at)}</small></td>
+      <td style="white-space:nowrap">${statusBadge(j.status)}</td>
+      <td style="max-width:320px">
+        ${isActive ? `<span class="spinner-border spinner-border-sm text-warning me-1"></span>` : ''}
+        <small class="${isActive ? 'text-warning' : 'text-muted'}">${progressText}</small>
+      </td>
       <td><small>${fmtDate(j.started_at)}</small></td>
       <td><small>${fmtDate(j.completed_at)}</small></td>
       <td>
-        ${ACTIVE.includes(j.status) ? `<span class="spinner-border spinner-border-sm text-warning" title="In progress"></span>` : ''}
+        <button class="btn btn-xs btn-sm btn-outline-secondary py-0 px-2" onclick="event.stopPropagation();openLog(${j.id})">
+          <i class="bi bi-journal-text me-1"></i>Log
+        </button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+}
+
+function resetTableInterval(hasActive) {
+  clearInterval(tableInterval);
+  tableInterval = setInterval(loadJobs, hasActive ? 3000 : 15000);
 }
 
 async function openLog(jobId) {
@@ -118,11 +161,17 @@ function updateLogModal(job) {
   document.getElementById('log-status-badge').innerHTML = statusBadge(job.status);
 
   const logBox = document.getElementById('log-content');
-  logBox.textContent = job.log || '(no log yet)';
+  if (job.log && job.log.trim()) {
+    logBox.textContent = job.log;
+  } else if (ACTIVE.includes(job.status)) {
+    logBox.textContent = STATUS_LABEL[job.status] || 'Starting…';
+  } else {
+    logBox.textContent = '(no log)';
+  }
   logBox.scrollTop = logBox.scrollHeight;
 
   const cancelBtn = document.getElementById('cancel-job-btn');
-  cancelBtn.style.display = job.status === 'pending' ? '' : 'none';
+  cancelBtn.style.display = ['pending', 'login', 'scraping', 'validating', 'backing_up'].includes(job.status) ? '' : 'none';
 }
 
 document.getElementById('cancel-job-btn').addEventListener('click', async () => {
@@ -134,7 +183,5 @@ document.getElementById('cancel-job-btn').addEventListener('click', async () => 
 });
 
 loadJobs();
-// Auto-refresh table every 10s if there are active jobs
-setInterval(loadJobs, 10000);
 </script>
 {% endblock %}
