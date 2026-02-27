@@ -71,6 +71,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <input type="hidden" id="upg-device-id">
+        <div id="upg-compat-warn" class="alert alert-warning py-2 mb-3 d-none"></div>
         <div class="mb-3"><label class="form-label">Firmware *</label>
           <select class="form-select" id="upg-firmware"></select></div>
         <div class="mb-3"><label class="form-label">Schedule (blank = immediate)</label>
@@ -121,6 +122,7 @@
 {% block scripts %}
 <script>
 let allDevices = [];
+let allFirmware = [];
 
 async function loadDevices() {
   const [devices, firmware] = await Promise.all([
@@ -128,15 +130,23 @@ async function loadDevices() {
     api('GET', '/api/firmware'),
   ]);
   allDevices = devices;
-
-  const fwSel = document.getElementById('upg-firmware');
-  const ptLabel = { KVM: ' [KVM]', HYPERV: ' [Hyper-V]', VMWARE: ' [VMware]' };
-  fwSel.innerHTML = firmware.map(f => {
-    const pt = (f.platform_tag && f.platform_tag !== 'ANY') ? (ptLabel[f.platform_tag] || '') : '';
-    return `<option value="${f.id}">${f.filename} (v${f.version})${pt}</option>`;
-  }).join('');
-
+  allFirmware = firmware;
   renderTable(devices);
+}
+
+function compatibleFirmware(device) {
+  return allFirmware.filter(f => {
+    // If the firmware lists compatible device types, the device must be in the list
+    if (f.compatible_types && f.compatible_types.length > 0) {
+      if (!f.compatible_types.includes(device.device_type)) return false;
+    }
+    // If the firmware is tagged for a specific hypervisor platform, the device must match
+    // (if the device hypervisor is unknown we still allow it — better than hiding options)
+    if (f.platform_tag && f.platform_tag !== 'ANY') {
+      if (device.hypervisor_type && device.hypervisor_type !== f.platform_tag) return false;
+    }
+    return true;
+  });
 }
 
 const hypervisorBadge = (d) => {
@@ -253,8 +263,32 @@ document.getElementById('delete-dev-btn').addEventListener('click', async () => 
 });
 
 function openUpgrade(deviceId, deviceName) {
+  const device = allDevices.find(x => x.id === deviceId) || { device_type: null, hypervisor_type: null };
   document.getElementById('upg-device-id').value = deviceId;
   document.getElementById('upg-device-name').textContent = deviceName;
+
+  const fwSel = document.getElementById('upg-firmware');
+  const upgRun = document.getElementById('upg-run');
+  const upgWarn = document.getElementById('upg-compat-warn');
+  const ptLabel = { KVM: ' [KVM]', HYPERV: ' [Hyper-V]', VMWARE: ' [VMware]' };
+
+  const options = compatibleFirmware(device);
+  if (options.length === 0) {
+    fwSel.innerHTML = '<option value="">— No compatible firmware in library —</option>';
+    upgRun.disabled = true;
+    upgWarn.textContent = allFirmware.length === 0
+      ? 'No firmware has been uploaded yet.'
+      : `No firmware is compatible with this device type${device.hypervisor_type ? ' / ' + device.hypervisor_type + ' platform' : ''}. Upload the correct firmware first.`;
+    upgWarn.classList.remove('d-none');
+  } else {
+    fwSel.innerHTML = options.map(f => {
+      const pt = (f.platform_tag && f.platform_tag !== 'ANY') ? (ptLabel[f.platform_tag] || '') : '';
+      return `<option value="${f.id}">${f.filename} (v${f.version})${pt}</option>`;
+    }).join('');
+    upgRun.disabled = false;
+    upgWarn.classList.add('d-none');
+  }
+
   new bootstrap.Modal(document.getElementById('upgradeModal')).show();
 }
 
