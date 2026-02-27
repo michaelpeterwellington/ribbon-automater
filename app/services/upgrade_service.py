@@ -126,6 +126,26 @@ async def _run_workflow(
         validation = await client.validate_upgrade()
         await _append_log(db, job, f"Validation response: {str(validation)[:200]}")
 
+        # Platform mismatch check — only for SWe Edge with a tagged firmware
+        if (
+            firmware.platform_tag and firmware.platform_tag != "ANY"
+            and str(device.device_type) == "SWE_EDGE"
+        ):
+            if not device.hypervisor_type:
+                # Try to detect now
+                detected = await client.get_hypervisor()
+                if detected:
+                    device.hypervisor_type = detected
+                    await db.commit()
+            if device.hypervisor_type and device.hypervisor_type != firmware.platform_tag:
+                raise RibbonUpgradeError(
+                    f"Platform mismatch: device is running on {device.hypervisor_type} "
+                    f"but selected firmware is tagged for {firmware.platform_tag}. "
+                    f"Select the correct firmware for your hypervisor."
+                )
+            if device.hypervisor_type:
+                await _append_log(db, job, f"Platform check passed: {device.hypervisor_type} ✓")
+
         # Step 4 — Config backup (save returned bytes to disk)
         await _set_status(db, job, JobStatus.BACKING_UP)
         await _append_log(db, job, "Triggering config backup…")

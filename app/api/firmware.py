@@ -36,6 +36,7 @@ def _firmware_to_out(fw: FirmwareFile) -> FirmwareOut:
         filename=fw.filename,
         version=fw.version,
         compatible_types=compatible_types,
+        platform_tag=fw.platform_tag,
         file_size=fw.file_size,
         sha256=fw.sha256,
         uploaded_at=fw.uploaded_at,
@@ -56,6 +57,7 @@ async def upload_firmware(
     file: UploadFile = File(...),
     version: str = Form(...),
     compatible_types: str = Form("[]"),  # JSON array string e.g. '["SBC1K","SBC2K"]'
+    platform_tag: str = Form("ANY"),     # KVM / HYPERV / VMWARE / ANY
     notes: str = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -82,10 +84,15 @@ async def upload_firmware(
     except Exception:
         types_list = []
 
+    # Normalise platform tag — only accept known values
+    valid_tags = {"KVM", "HYPERV", "VMWARE", "ANY"}
+    normalised_tag = platform_tag.upper() if platform_tag.upper() in valid_tags else "ANY"
+
     fw = FirmwareFile(
         filename=file.filename,
         version=version,
         compatible_types=json.dumps(types_list),
+        platform_tag=normalised_tag,
         file_path=str(dest_path),
         file_size=total_size,
         sha256=sha256.hexdigest(),
@@ -100,7 +107,8 @@ async def upload_firmware(
                     "firmware", fw.id,
                     {"filename": file.filename, "version": version,
                      "size_mb": round(total_size / 1048576, 1),
-                     "compatible_types": types_list})
+                     "compatible_types": types_list,
+                     "platform_tag": normalised_tag})
     return _firmware_to_out(fw)
 
 

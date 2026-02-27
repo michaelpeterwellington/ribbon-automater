@@ -32,7 +32,16 @@
             <label class="form-check-label" for="compat-2k">SBC 2000</label></div>
         </div>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-2">
+        <label class="form-label">Platform <small class="text-muted">(SWe Edge)</small></label>
+        <select class="form-select" id="fw-platform">
+          <option value="ANY">Any / Not applicable</option>
+          <option value="KVM">KVM</option>
+          <option value="HYPERV">Hyper-V</option>
+          <option value="VMWARE">VMware</option>
+        </select>
+      </div>
+      <div class="col-md-2">
         <label class="form-label">Notes</label>
         <input class="form-control" id="fw-notes">
       </div>
@@ -57,10 +66,10 @@
   <div class="card-body p-0">
     <table class="table table-hover mb-0" id="fw-table">
       <thead><tr>
-        <th>Filename</th><th>Version</th><th>Compatible</th>
+        <th>Filename</th><th>Version</th><th>Compatible</th><th>Platform</th>
         <th>Size</th><th>SHA256</th><th>Uploaded</th><th></th>
       </tr></thead>
-      <tbody><tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+      <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -100,6 +109,7 @@ uploadBtn.addEventListener('click', () => {
   fd.append('file', file);
   fd.append('version', version);
   fd.append('compatible_types', JSON.stringify(types));
+  fd.append('platform_tag', document.getElementById('fw-platform').value);
   fd.append('notes', document.getElementById('fw-notes').value || '');
 
   const bar = document.getElementById('upload-bar');
@@ -163,14 +173,21 @@ async function loadFirmware() {
   const list = await api('GET', '/api/firmware');
   const tbody = document.querySelector('#fw-table tbody');
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No firmware uploaded yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No firmware uploaded yet</td></tr>';
     return;
   }
+  const platformBadge = tag => {
+    if (!tag || tag === 'ANY') return '<span class="text-muted">—</span>';
+    const colors = { KVM: 'bg-info', HYPERV: 'bg-primary', VMWARE: 'bg-warning text-dark' };
+    const labels = { KVM: 'KVM', HYPERV: 'Hyper-V', VMWARE: 'VMware' };
+    return `<span class="badge ${colors[tag]||'bg-secondary'}">${labels[tag]||tag}</span>`;
+  };
   tbody.innerHTML = list.map(f => `
     <tr>
       <td class="fw-semibold"><i class="bi bi-file-earmark-binary me-1 text-muted"></i>${f.filename}</td>
       <td><code>${f.version}</code></td>
       <td>${(f.compatible_types||[]).map(t => `<span class="badge bg-secondary me-1">${t}</span>`).join('')||'<span class="text-muted">—</span>'}</td>
+      <td>${platformBadge(f.platform_tag)}</td>
       <td>${(f.file_size/1024/1024).toFixed(1)} MB</td>
       <td><small class="text-muted font-monospace">${f.sha256.substring(0,12)}…</small></td>
       <td><small>${new Date(f.uploaded_at).toLocaleString()}</small></td>

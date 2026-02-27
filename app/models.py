@@ -65,6 +65,7 @@ class Device(Base):
     password_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     current_version: Mapped[str | None] = mapped_column(String(100))
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    hypervisor_type: Mapped[str | None] = mapped_column(String(50))  # KVM / HYPERV / VMWARE (SWe Edge only)
     notes: Mapped[str | None] = mapped_column(Text)
 
     customer: Mapped["Customer"] = relationship("Customer", back_populates="devices")
@@ -82,6 +83,7 @@ class FirmwareFile(Base):
     compatible_types: Mapped[str] = mapped_column(
         Text, nullable=False, default="[]"
     )  # JSON list
+    platform_tag: Mapped[str | None] = mapped_column(String(20))  # KVM / HYPERV / VMWARE / ANY
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)

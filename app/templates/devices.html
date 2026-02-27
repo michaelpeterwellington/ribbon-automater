@@ -16,9 +16,9 @@
     <table class="table table-hover mb-0" id="devices-table">
       <thead><tr>
         <th>Device</th><th>Customer</th><th>IP</th><th>Type</th>
-        <th>Version</th><th>Last Checked</th><th></th>
+        <th>Version</th><th>Platform</th><th>Last Checked</th><th></th>
       </tr></thead>
-      <tbody><tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+      <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -130,16 +130,27 @@ async function loadDevices() {
   allDevices = devices;
 
   const fwSel = document.getElementById('upg-firmware');
-  fwSel.innerHTML = firmware.map(f =>
-    `<option value="${f.id}">${f.filename} (v${f.version})</option>`).join('');
+  const ptLabel = { KVM: ' [KVM]', HYPERV: ' [Hyper-V]', VMWARE: ' [VMware]' };
+  fwSel.innerHTML = firmware.map(f => {
+    const pt = (f.platform_tag && f.platform_tag !== 'ANY') ? (ptLabel[f.platform_tag] || '') : '';
+    return `<option value="${f.id}">${f.filename} (v${f.version})${pt}</option>`;
+  }).join('');
 
   renderTable(devices);
 }
 
+const hypervisorBadge = (d) => {
+  if (d.device_type !== 'SWE_EDGE') return '<span class="text-muted">—</span>';
+  if (!d.hypervisor_type) return '<span class="text-muted">Unknown</span>';
+  const map = { KVM: ['bg-info','KVM'], HYPERV: ['bg-primary','Hyper-V'], VMWARE: ['bg-warning text-dark','VMware'] };
+  const [cls, label] = map[d.hypervisor_type] || ['bg-secondary', d.hypervisor_type];
+  return `<span class="badge ${cls}">${label}</span>`;
+};
+
 function renderTable(devices) {
   const tbody = document.querySelector('#devices-table tbody');
   if (!devices.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No devices found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No devices found</td></tr>';
     return;
   }
   tbody.innerHTML = devices.map(d => `
@@ -149,6 +160,7 @@ function renderTable(devices) {
       <td><code>${d.ip_address}</code></td>
       <td><span class="badge bg-secondary">${d.device_type}</span></td>
       <td id="ver-${d.id}">${d.current_version ? `<code>${d.current_version}</code>` : '<span class="text-warning">Unknown</span>'}</td>
+      <td id="hyp-${d.id}">${hypervisorBadge(d)}</td>
       <td><small>${d.last_checked_at ? new Date(d.last_checked_at).toLocaleString() : '—'}</small></td>
       <td class="text-end" style="white-space:nowrap">
         <button class="btn btn-sm btn-outline-info me-1" onclick="checkVersion(${d.id})" title="Check version">
@@ -175,11 +187,18 @@ document.getElementById('search').addEventListener('input', e => {
 
 async function checkVersion(deviceId) {
   const cell = document.getElementById(`ver-${deviceId}`);
+  const hypCell = document.getElementById(`hyp-${deviceId}`);
   cell.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Checking…</span>';
   const r = await fetch(`/api/devices/${deviceId}/check-version`, { method: 'POST' });
   const data = await r.json();
   if (data.version) {
     cell.innerHTML = `<code>${data.version}</code>`;
+    // Update hypervisor badge if returned
+    if (hypCell && data.hypervisor_type) {
+      const d = allDevices.find(x => x.id === deviceId) || { device_type: 'SWE_EDGE' };
+      d.hypervisor_type = data.hypervisor_type;
+      hypCell.innerHTML = hypervisorBadge(d);
+    }
   } else if (data.error) {
     cell.innerHTML = `<span class="text-danger" title="${data.error}"><i class="bi bi-exclamation-triangle me-1"></i>Error — hover for details</span>`;
   } else {

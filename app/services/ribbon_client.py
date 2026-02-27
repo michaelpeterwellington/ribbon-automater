@@ -55,6 +55,19 @@ class RibbonUpgradeError(Exception):
     pass
 
 
+def _normalize_hypervisor(text: str) -> str | None:
+    """Map a raw hypervisor string from the device to a canonical tag."""
+    import re
+    v = text.lower()
+    if re.search(r"hyper.?v", v):
+        return "HYPERV"
+    if "kvm" in v:
+        return "KVM"
+    if "vmware" in v or "esxi" in v:
+        return "VMWARE"
+    return None
+
+
 class _MultipartProgressStream(httpx.AsyncByteStream):
     """
     Streaming multipart/form-data body that updates a progress dict as bytes are sent.
@@ -190,6 +203,59 @@ class RibbonWebClient:
         logger.debug(f"Login successful for {self.base_url}")
 
     # ── Version Detection ──────────────────────────────────────────────────
+
+    async def get_hypervisor(self) -> str | None:
+        """
+        Detect the hypervisor platform of a SWe Edge device by querying the System Overview page.
+        Returns 'KVM', 'HYPERV', 'VMWARE', or None if not detected.
+
+        The System Overview page exposes a 'Hypervisor Environment' field whose value is rendered
+        in the page HTML. This is only meaningful for SWe Edge (virtualised) devices.
+        """
+        import re
+        try:
+            resp = await self._client.get(
+                f"{self.base_url}/cgi/phpUI/callDetailsEngine.php",
+                params={"cfg": "/views/system/systemOverview.xml"},
+                timeout=15.0,
+            )
+        except Exception as e:
+            logger.debug(f"get_hypervisor fetch failed: {e}")
+            return None
+
+        text = resp.text
+        soup = BeautifulSoup(text, "lxml")
+
+        # Strategy 1: element with id='rt_Hypervisor_Environment'
+        el = soup.find(id="rt_Hypervisor_Environment")
+        if el:
+            return _normalize_hypervisor(el.get_text(strip=True))
+
+        # Strategy 2: label "Hypervisor Environment" → adjacent cell value
+        for label_tag in soup.find_all(string=re.compile(r"Hypervisor\s+Environment", re.I)):
+            parent = label_tag.parent
+            sibling = parent.find_next_sibling()
+            if sibling:
+                result = _normalize_hypervisor(sibling.get_text(strip=True))
+                if result:
+                    return result
+            row = parent.find_parent("tr")
+            if row:
+                cells = row.find_all("td")
+                if len(cells) >= 2:
+                    result = _normalize_hypervisor(cells[-1].get_text(strip=True))
+                    if result:
+                        return result
+
+        # Strategy 3: scan raw lines for known hypervisor strings
+        for line in text.splitlines():
+            if re.search(r"hyper.?v|kvm|vmware|esxi", line, re.I):
+                result = _normalize_hypervisor(line)
+                if result:
+                    return result
+
+        logger.debug("Hypervisor type not found in system overview page")
+        return None
 
     async def get_version(self) -> str | None:
         """

@@ -28,6 +28,8 @@ async def init_db() -> None:
         for sql in [
             "ALTER TABLE upgrade_jobs ADD COLUMN backup_path TEXT",
             "ALTER TABLE upgrade_jobs ADD COLUMN upload_bytes_sent INTEGER",
+            "ALTER TABLE firmware_files ADD COLUMN platform_tag TEXT",
+            "ALTER TABLE devices ADD COLUMN hypervisor_type TEXT",
         ]:
             try:
                 await conn.execute(text(sql))

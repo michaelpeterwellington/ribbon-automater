@@ -242,7 +242,12 @@ async def check_version(device_id: int, db: AsyncSession = Depends(get_db)):
             version = await client.get_version()
             device.current_version = version
             device.last_checked_at = datetime.now(timezone.utc)
+            # Detect hypervisor for SWe Edge (virtualised) devices
+            if device.device_type == DeviceType.SWE_EDGE:
+                hypervisor = await client.get_hypervisor()
+                if hypervisor:
+                    device.hypervisor_type = hypervisor
             await db.commit()
-            return {"version": version, "updated": True}
+            return {"version": version, "updated": True, "hypervisor_type": device.hypervisor_type}
         except Exception as e:
             return {"version": None, "updated": False, "error": str(e)}

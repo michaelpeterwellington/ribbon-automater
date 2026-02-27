@@ -62,6 +62,7 @@ class DeviceOut(BaseModel):
     username: str
     current_version: str | None
     last_checked_at: datetime | None
+    hypervisor_type: str | None = None  # KVM / HYPERV / VMWARE (SWe Edge only)
     notes: str | None
 
     model_config = {"from_attributes": True}
@@ -74,6 +75,7 @@ class FirmwareOut(BaseModel):
     filename: str
     version: str
     compatible_types: list[str]
+    platform_tag: str | None = None  # KVM / HYPERV / VMWARE / ANY
     file_size: int
     sha256: str
     uploaded_at: datetime
