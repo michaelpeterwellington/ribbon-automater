@@ -20,6 +20,7 @@ class DeviceType(str, enum.Enum):
     SBC1K = "SBC1K"
     SBC2K = "SBC2K"
     SWE_EDGE = "SWE_EDGE"
+    DIALOGIC = "DIALOGIC"
 
 
 class JobStatus(str, enum.Enum):

@@ -41,6 +41,7 @@
               <option value="SWE_EDGE">SWe Edge</option>
               <option value="SBC1K">SBC 1000</option>
               <option value="SBC2K">SBC 2000</option>
+              <option value="DIALOGIC">Dialogic SBC</option>
             </select></div>
           <div class="col-md-4"><label class="form-label">Username *</label>
             <input class="form-control" id="edit-dev-user"></div>
@@ -95,7 +96,7 @@
       <div class="modal-body">
         <p class="text-muted small mb-3">
           Upload a CSV file to add multiple devices at once. If a customer name doesn't exist it will be created automatically.
-          Accepted device types: <code>SWE_EDGE</code>, <code>SBC1K</code>, <code>SBC2K</code> (or common aliases like "SWe Edge", "SBC 1000", "SBC 2000").
+          Accepted device types: <code>SWE_EDGE</code>, <code>SBC1K</code>, <code>SBC2K</code>, <code>DIALOGIC</code> (or common aliases like "SWe Edge", "SBC 1000", "SBC 2000", "Dialogic SBC").
         </p>
         <div class="mb-3">
           <button class="btn btn-sm btn-outline-secondary" id="download-template">
@@ -150,7 +151,7 @@ function compatibleFirmware(device) {
 }
 
 const hypervisorBadge = (d) => {
-  if (d.device_type !== 'SWE_EDGE') return '<span class="text-muted">—</span>';
+  if (d.device_type !== 'SWE_EDGE') return '<span class="text-muted">—</span>';  // Only SWe Edge has a hypervisor
   if (!d.hypervisor_type) return '<span class="text-muted">Unknown</span>';
   const map = { KVM: ['bg-info','KVM'], HYPERV: ['bg-primary','Hyper-V'], VMWARE: ['bg-warning text-dark','VMware'] };
   const [cls, label] = map[d.hypervisor_type] || ['bg-secondary', d.hypervisor_type];

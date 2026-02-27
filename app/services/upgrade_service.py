@@ -20,6 +20,7 @@ from app.database import AsyncSessionLocal
 from app.models import Device, FirmwareFile, JobStatus, UpgradeJob
 from app.services.audit import audit_log
 from app.services.crypto import decrypt_value
+from app.services.dialogic_client import DialogicClient, DialogicError
 from app.services.ribbon_client import RibbonLoginError, RibbonUpgradeError, RibbonWebClient
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,10 @@ async def _async_run_upgrade_job(job_id: int) -> None:
         await db.commit()
 
         try:
-            await _run_workflow(db, job, device, firmware)
+            if str(device.device_type) == "DIALOGIC":
+                await _run_dialogic_workflow(db, job, device, firmware)
+            else:
+                await _run_workflow(db, job, device, firmware)
         except Exception as e:
             await _set_status(db, job, JobStatus.FAILED)
             await _append_log(db, job, f"FATAL ERROR: {e}")
@@ -237,6 +241,67 @@ async def _run_workflow(
                         "job", job.id,
                         {"device": device.name, "ip": device.ip_address,
                          "firmware": firmware.filename, "new_version": new_version})
+
+    await _send_notification(db, job, device, firmware, "complete")
+
+
+async def _run_dialogic_workflow(
+    db: AsyncSession,
+    job: UpgradeJob,
+    device: Device,
+    firmware: FirmwareFile,
+) -> None:
+    """
+    Dialogic BorderNet SBC upgrade workflow.
+
+    Steps:
+      1. LOGIN    — verify connectivity via keep-alive probe
+      2. UPLOADING — POST firmware as multipart to the device
+      3. COMPLETE  — log success; triggering the upgrade is a future step
+
+    Skips: SCRAPING, VALIDATING, BACKING_UP, REBOOTING, VERIFYING
+    (not applicable to the Dialogic REST API upload-only flow).
+    """
+    password = decrypt_value(device.password_encrypted)
+    firmware_path = Path(firmware.file_path)
+
+    if not firmware_path.exists():
+        raise DialogicError(f"Firmware file not found: {firmware_path}")
+
+    async with DialogicClient(device.ip_address, device.username, password) as client:
+
+        # Step 1 — Connectivity check
+        await _set_status(db, job, JobStatus.LOGIN)
+        await _append_log(db, job, f"Connecting to {device.ip_address} (port 8443)…")
+        ok, msg = await client.test_connection()
+        if not ok:
+            raise DialogicError(f"Cannot reach device: {msg}")
+        await _append_log(db, job, f"Device reachable — {msg}")
+
+        # Step 2 — Upload firmware
+        await _set_status(db, job, JobStatus.UPLOADING)
+        await _append_log(
+            db, job,
+            f"Uploading {firmware.filename} ({firmware.file_size / 1024 / 1024:.1f} MB)…"
+        )
+        response_text = await client.upload_firmware(firmware_path)
+        await _append_log(db, job, f"Firmware upload complete — device response: {response_text[:200] or '(empty)'}")
+
+        # Step 3 — Done (upgrade trigger is a separate future step)
+        job.status = JobStatus.COMPLETE
+        job.completed_at = datetime.now(timezone.utc)
+        await _append_log(
+            db, job,
+            "Firmware upload COMPLETE. "
+            "To activate the new firmware, trigger the upgrade from the device admin UI or via the PUT /system/administration/upgrade API."
+        )
+        await db.commit()
+        await audit_log(
+            db, "job.completed",
+            f"Dialogic firmware upload job #{job.id} COMPLETE — {device.name} received {firmware.filename}",
+            "job", job.id,
+            {"device": device.name, "ip": device.ip_address, "firmware": firmware.filename},
+        )
 
     await _send_notification(db, job, device, firmware, "complete")
 

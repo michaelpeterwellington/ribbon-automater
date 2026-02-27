@@ -39,6 +39,7 @@ _TYPE_ALIASES: dict[str, str] = {
     "swe_edge": "SWE_EDGE", "swe edge": "SWE_EDGE", "sweedge": "SWE_EDGE", "swe": "SWE_EDGE",
     "sbc1k": "SBC1K", "sbc 1000": "SBC1K", "sbc1000": "SBC1K", "1000": "SBC1K",
     "sbc2k": "SBC2K", "sbc 2000": "SBC2K", "sbc2000": "SBC2K", "2000": "SBC2K",
+    "dialogic": "DIALOGIC", "dialogic sbc": "DIALOGIC",
 }
 
 
