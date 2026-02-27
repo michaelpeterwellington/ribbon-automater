@@ -39,7 +39,10 @@
     </div>
     <div class="mt-3">
       <div id="upload-progress" class="d-none mb-2">
-        <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:100%"></div></div>
+        <div class="progress mb-1" style="height:22px">
+          <div class="progress-bar progress-bar-striped progress-bar-animated"
+               id="upload-bar" style="width:0%;min-width:2rem" role="progressbar">0%</div>
+        </div>
         <small class="text-muted" id="upload-status">Uploading…</small>
       </div>
       <button class="btn btn-primary" id="upload-btn" disabled>
@@ -83,7 +86,7 @@ function updateDropZone(file) {
   uploadBtn.disabled = false;
 }
 
-uploadBtn.addEventListener('click', async () => {
+uploadBtn.addEventListener('click', () => {
   const file = fileInput.files[0];
   if (!file) return alert('Select a file first');
   const version = document.getElementById('fw-version').value.trim();
@@ -99,19 +102,61 @@ uploadBtn.addEventListener('click', async () => {
   fd.append('compatible_types', JSON.stringify(types));
   fd.append('notes', document.getElementById('fw-notes').value || '');
 
-  document.getElementById('upload-progress').classList.remove('d-none');
-  document.getElementById('upload-status').textContent = 'Uploading…';
+  const bar = document.getElementById('upload-bar');
+  const statusEl = document.getElementById('upload-status');
+  const progressEl = document.getElementById('upload-progress');
+
+  bar.style.width = '0%';
+  bar.textContent = '0%';
+  bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+  progressEl.classList.remove('d-none');
+  statusEl.textContent = 'Starting upload…';
   uploadBtn.disabled = true;
 
-  try {
-    await api('POST', '/api/firmware', fd);
-    document.getElementById('upload-status').textContent = 'Upload complete!';
-    loadFirmware();
-    setTimeout(() => document.getElementById('upload-progress').classList.add('d-none'), 3000);
-  } catch(e) {
-    document.getElementById('upload-status').textContent = 'Error: ' + e.message;
-  }
-  uploadBtn.disabled = false;
+  // Use XMLHttpRequest so we get real upload progress events (fetch does not expose these)
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/firmware');
+
+  xhr.upload.addEventListener('progress', e => {
+    if (!e.lengthComputable) return;
+    const pct = Math.round(e.loaded / e.total * 100);
+    const sent = (e.loaded / 1024 / 1024).toFixed(1);
+    const total = (e.total / 1024 / 1024).toFixed(1);
+    bar.style.width = pct + '%';
+    bar.textContent = pct + '%';
+    statusEl.textContent = `Uploading… ${sent} / ${total} MB (${pct}%)`;
+  });
+
+  xhr.addEventListener('load', () => {
+    uploadBtn.disabled = false;
+    if (xhr.status === 200 || xhr.status === 201) {
+      bar.style.width = '100%';
+      bar.textContent = 'Complete';
+      bar.className = 'progress-bar bg-success';
+      statusEl.textContent = 'Upload complete!';
+      loadFirmware();
+      setTimeout(() => progressEl.classList.add('d-none'), 4000);
+    } else {
+      bar.className = 'progress-bar bg-danger';
+      bar.style.width = '100%';
+      bar.textContent = 'Failed';
+      try {
+        const err = JSON.parse(xhr.responseText);
+        statusEl.textContent = 'Error: ' + (err.detail || xhr.statusText);
+      } catch {
+        statusEl.textContent = 'Error: ' + xhr.statusText;
+      }
+    }
+  });
+
+  xhr.addEventListener('error', () => {
+    uploadBtn.disabled = false;
+    bar.className = 'progress-bar bg-danger';
+    bar.style.width = '100%';
+    statusEl.textContent = 'Network error — upload failed';
+  });
+
+  xhr.send(fd);
 });
 
 async function loadFirmware() {
