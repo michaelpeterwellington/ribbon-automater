@@ -26,12 +26,20 @@ async def _get_or_404(db: AsyncSession, firmware_id: int) -> FirmwareFile:
 
 
 def _firmware_to_out(fw: FirmwareFile) -> FirmwareOut:
-    d = FirmwareOut.model_validate(fw)
     try:
-        d.compatible_types = json.loads(fw.compatible_types)
+        compatible_types = json.loads(fw.compatible_types)
     except Exception:
-        d.compatible_types = []
-    return d
+        compatible_types = []
+    return FirmwareOut(
+        id=fw.id,
+        filename=fw.filename,
+        version=fw.version,
+        compatible_types=compatible_types,
+        file_size=fw.file_size,
+        sha256=fw.sha256,
+        uploaded_at=fw.uploaded_at,
+        notes=fw.notes,
+    )
 
 
 @router.get("", response_model=list[FirmwareOut])
