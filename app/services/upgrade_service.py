@@ -133,10 +133,14 @@ async def _run_workflow(
         await client.upload_firmware(firmware_path, form_fields)
         await _append_log(db, job, "Firmware uploaded — device is installing and will reboot")
 
-        # Step 6 — Wait for reboot
+        # Step 6 — Wait for installation to complete, then wait for reboot
         await _set_status(db, job, JobStatus.REBOOTING)
-        await _append_log(db, job, "Waiting for device to reboot…")
-        came_back = await client.wait_for_reboot()
+        await _append_log(db, job, "Waiting for device to complete firmware installation…")
+        installed = await client.wait_for_install()
+        if not installed:
+            raise RibbonUpgradeError("Firmware installation did not complete within timeout")
+        await _append_log(db, job, "Installation confirmed — device is rebooting…")
+        came_back = await client.wait_for_online()
         if not came_back:
             raise RibbonUpgradeError("Device did not come back online within timeout after reboot")
         await _append_log(db, job, "Device is back online")
