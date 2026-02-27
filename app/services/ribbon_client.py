@@ -29,6 +29,7 @@ Upgrade flow (confirmed against browser HAR capture):
 
 import asyncio
 import logging
+import uuid
 import warnings
 from pathlib import Path
 
@@ -52,6 +53,74 @@ class RibbonLoginError(Exception):
 
 class RibbonUpgradeError(Exception):
     pass
+
+
+class _MultipartProgressStream(httpx.AsyncByteStream):
+    """
+    Streaming multipart/form-data body that updates a progress dict as bytes are sent.
+
+    Passing this as content= to httpx.AsyncClient.build_request() keeps the firmware
+    file streaming off disk rather than loading it into memory, and lets us report
+    per-chunk progress to the caller without using httpx internals.
+    """
+
+    def __init__(self, fields: dict[str, str], firmware_path: Path, progress: dict) -> None:
+        self.boundary = uuid.uuid4().hex
+        self._fields = fields
+        self._firmware_path = firmware_path
+        self._progress = progress
+        self.content_type = f"multipart/form-data; boundary={self.boundary}"
+
+        file_size = firmware_path.stat().st_size
+        progress["total"] = file_size
+        progress["sent"] = 0
+        self.length = self._calc_length(file_size)
+
+    def _calc_length(self, file_size: int) -> int:
+        """Pre-compute the exact Content-Length so the device doesn't need chunked encoding."""
+        total = 0
+        for name, value in self._fields.items():
+            total += len(
+                f"--{self.boundary}\r\n"
+                f"Content-Disposition: form-data; name=\"{name}\"\r\n"
+                f"\r\n"
+                f"{value}\r\n"
+            )
+        filename = self._firmware_path.name
+        total += len(
+            f"--{self.boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"Filename\"; filename=\"{filename}\"\r\n"
+            f"Content-Type: application/octet-stream\r\n"
+            f"\r\n"
+        )
+        total += file_size
+        total += len(f"\r\n--{self.boundary}--\r\n")
+        return total
+
+    async def __aiter__(self):
+        for name, value in self._fields.items():
+            yield (
+                f"--{self.boundary}\r\n"
+                f"Content-Disposition: form-data; name=\"{name}\"\r\n"
+                f"\r\n"
+                f"{value}\r\n"
+            ).encode("utf-8")
+
+        filename = self._firmware_path.name
+        yield (
+            f"--{self.boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"Filename\"; filename=\"{filename}\"\r\n"
+            f"Content-Type: application/octet-stream\r\n"
+            f"\r\n"
+        ).encode("utf-8")
+
+        with open(self._firmware_path, "rb") as fh:
+            while chunk := fh.read(65536):
+                yield chunk
+                self._progress["sent"] += len(chunk)
+                await asyncio.sleep(0)  # yield control so the progress updater task can run
+
+        yield f"\r\n--{self.boundary}--\r\n".encode("utf-8")
 
 
 class RibbonWebClient:
@@ -189,11 +258,12 @@ class RibbonWebClient:
         except Exception:
             return {"raw": resp.text}
 
-    async def backup_config(self, form_fields: dict[str, str]) -> None:
+    async def backup_config(self, form_fields: dict[str, str]) -> bytes:
         """
         Trigger config backup before upgrade.
         Sends ALL scraped form fields with backupState=pending.
-        The device responds by streaming back a .tar config backup (content discarded).
+        The device responds by streaming back a .tar config backup.
+        Returns the raw backup bytes so the caller can persist them.
         """
         payload = {
             **form_fields,
@@ -209,6 +279,7 @@ class RibbonWebClient:
             timeout=120.0,
         )
         logger.debug(f"Config backup response: {resp.status_code}, size: {len(resp.content)} bytes")
+        return resp.content
 
     async def create_upload_marker(self) -> None:
         """Ask the server to create the upload slot."""
@@ -226,12 +297,17 @@ class RibbonWebClient:
         firmware_path: Path,
         form_fields: dict[str, str],
         partition: int = 3,
+        progress: dict | None = None,
     ) -> None:
         """
         Upload the firmware image file to the device.
 
         Uses ALL scraped form fields (not a whitelist) to exactly match what the browser sends,
         including platformType, HA, asmVersion, hastandalone and all __m_* fields.
+
+        When `progress` is provided (a dict with 'sent' and 'total' keys), the upload streams
+        the file in 64 KB chunks and updates progress['sent'] as bytes are sent. A background
+        task in the caller can read this dict and persist it to the DB for live UI display.
 
         The upload itself is the long step — large files (~100 MB) typically take 8+ minutes.
         The 200 response only returns after the file is fully received by the device.
@@ -253,14 +329,28 @@ class RibbonWebClient:
             "confirmBackupPassphrase": "",
         })
 
-        with open(firmware_path, "rb") as fh:
-            files = {"Filename": (firmware_path.name, fh, "application/octet-stream")}
-            resp = await self._client.post(
+        if progress is not None:
+            # Streaming upload with per-chunk progress tracking
+            stream = _MultipartProgressStream(merged, firmware_path, progress)
+            request = self._client.build_request(
+                "POST",
                 f"{self.base_url}/cgi/system/swDownload_do.phpx",
-                data=merged,
-                files=files,
-                timeout=_UPLOAD_TIMEOUT,
+                content=stream,
+                headers={
+                    "Content-Type": stream.content_type,
+                    "Content-Length": str(stream.length),
+                },
             )
+            resp = await self._client.send(request, timeout=_UPLOAD_TIMEOUT)
+        else:
+            with open(firmware_path, "rb") as fh:
+                files = {"Filename": (firmware_path.name, fh, "application/octet-stream")}
+                resp = await self._client.post(
+                    f"{self.base_url}/cgi/system/swDownload_do.phpx",
+                    data=merged,
+                    files=files,
+                    timeout=_UPLOAD_TIMEOUT,
+                )
 
         if resp.status_code not in (200, 202, 302):
             raise RibbonUpgradeError(

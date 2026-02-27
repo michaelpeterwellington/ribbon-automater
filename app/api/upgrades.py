@@ -1,8 +1,10 @@
 import asyncio
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -38,6 +40,9 @@ def _job_to_out(job: UpgradeJob) -> UpgradeJobOut:
             d.customer_name = job.device.customer.name
     if job.firmware:
         d.firmware_filename = job.firmware.filename
+        d.firmware_file_size = job.firmware.file_size
+    d.has_backup = bool(job.backup_path)
+    d.upload_bytes_sent = job.upload_bytes_sent
     return d
 
 
@@ -123,6 +128,22 @@ def _run_in_thread(job_id: int) -> None:
 @router.get("/{job_id}", response_model=UpgradeJobOut)
 async def get_job(job_id: int, db: AsyncSession = Depends(get_db)):
     return _job_to_out(await _get_or_404(db, job_id))
+
+
+@router.get("/{job_id}/backup")
+async def download_backup(job_id: int, db: AsyncSession = Depends(get_db)):
+    """Download the config backup file saved before the firmware was uploaded."""
+    job = await _get_or_404(db, job_id)
+    if not job.backup_path:
+        raise HTTPException(status_code=404, detail="No config backup is available for this job")
+    backup_path = Path(job.backup_path)
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Backup file not found on disk")
+    return FileResponse(
+        path=backup_path,
+        media_type="application/octet-stream",
+        filename=backup_path.name,
+    )
 
 
 @router.post("/{job_id}/cancel", response_model=MessageOut)

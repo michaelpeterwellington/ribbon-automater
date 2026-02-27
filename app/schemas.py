@@ -98,12 +98,15 @@ class UpgradeJobOut(BaseModel):
     customer_name: str | None = None
     firmware_id: int
     firmware_filename: str | None = None
+    firmware_file_size: int | None = None
     status: JobStatus
     scheduled_at: datetime | None
     started_at: datetime | None
     completed_at: datetime | None
     log: str
     triggered_by: str | None
+    upload_bytes_sent: int | None = None
+    has_backup: bool = False
 
     model_config = {"from_attributes": True}
 

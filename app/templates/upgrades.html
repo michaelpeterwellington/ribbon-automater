@@ -42,6 +42,9 @@
         <div class="log-box" id="log-content">Loading…</div>
       </div>
       <div class="modal-footer">
+        <a class="btn btn-sm btn-outline-info" id="download-backup-btn" href="#" style="display:none">
+          <i class="bi bi-download me-1"></i>Config Backup
+        </a>
         <button class="btn btn-sm btn-outline-danger" id="cancel-job-btn">Cancel Job</button>
         <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
@@ -95,9 +98,32 @@ async function loadJobs() {
   tbody.innerHTML = jobs.map(j => {
     const isActive = ACTIVE.includes(j.status);
     const last = lastLogLine(j.log);
-    const progressText = isActive
-      ? (last || STATUS_LABEL[j.status] || '')
-      : (j.status === 'failed' ? lastLogLine(j.log) : '');
+
+    // Progress cell — show a real progress bar during upload, spinner+text otherwise
+    let progressCell;
+    if (j.status === 'uploading' && j.firmware_file_size > 0) {
+      const sent  = j.upload_bytes_sent || 0;
+      const total = j.firmware_file_size;
+      const pct   = Math.min(99, Math.round(sent / total * 100));
+      const sentMB  = (sent  / 1048576).toFixed(1);
+      const totalMB = (total / 1048576).toFixed(1);
+      progressCell = `
+        <div style="min-width:220px">
+          <div class="progress mb-1" style="height:16px">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
+                 style="width:${Math.max(pct, 3)}%" role="progressbar">${pct}%</div>
+          </div>
+          <small class="text-warning">${sentMB} / ${totalMB} MB</small>
+        </div>`;
+    } else {
+      const progressText = isActive
+        ? (last || STATUS_LABEL[j.status] || '')
+        : (j.status === 'failed' ? lastLogLine(j.log) : '');
+      progressCell = `
+        ${isActive ? `<span class="spinner-border spinner-border-sm text-warning me-1"></span>` : ''}
+        <small class="${isActive ? 'text-warning' : 'text-muted'}">${progressText}</small>`;
+    }
+
     return `
     <tr class="${isActive ? 'table-active' : ''}" style="cursor:pointer" onclick="openLog(${j.id})">
       <td class="text-muted">#${j.id}</td>
@@ -105,10 +131,7 @@ async function loadJobs() {
       <td class="text-muted">${j.customer_name||'—'}</td>
       <td><small>${j.firmware_filename||'—'}</small></td>
       <td style="white-space:nowrap">${statusBadge(j.status)}</td>
-      <td style="max-width:320px">
-        ${isActive ? `<span class="spinner-border spinner-border-sm text-warning me-1"></span>` : ''}
-        <small class="${isActive ? 'text-warning' : 'text-muted'}">${progressText}</small>
-      </td>
+      <td style="max-width:320px">${progressCell}</td>
       <td><small>${fmtDate(j.started_at)}</small></td>
       <td><small>${fmtDate(j.completed_at)}</small></td>
       <td>
@@ -172,6 +195,14 @@ function updateLogModal(job) {
 
   const cancelBtn = document.getElementById('cancel-job-btn');
   cancelBtn.style.display = ['pending', 'login', 'scraping', 'validating', 'backing_up'].includes(job.status) ? '' : 'none';
+
+  const backupBtn = document.getElementById('download-backup-btn');
+  if (job.has_backup) {
+    backupBtn.style.display = '';
+    backupBtn.href = `/api/upgrades/${job.id}/backup`;
+  } else {
+    backupBtn.style.display = 'none';
+  }
 }
 
 document.getElementById('cancel-job-btn').addEventListener('click', async () => {

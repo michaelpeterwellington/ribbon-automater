@@ -112,6 +112,8 @@ class UpgradeJob(Base):
     log: Mapped[str] = mapped_column(Text, nullable=False, default="")
     triggered_by: Mapped[str | None] = mapped_column(String(255))
     apscheduler_job_id: Mapped[str | None] = mapped_column(String(255))
+    backup_path: Mapped[str | None] = mapped_column(Text)
+    upload_bytes_sent: Mapped[int | None] = mapped_column(Integer)
 
     device: Mapped["Device"] = relationship("Device", back_populates="upgrade_jobs")
     firmware: Mapped["FirmwareFile"] = relationship(

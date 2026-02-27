@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     secret_key: str = "CHANGE_ME"
     db_path: str = "/data/ribbon.db"
     upload_dir: str = "/uploads"
+    backups_dir: str = "/data/backups"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     debug: bool = False

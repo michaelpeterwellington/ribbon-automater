@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models import Device, FirmwareFile, JobStatus, UpgradeJob
 from app.services.crypto import decrypt_value
@@ -119,11 +120,26 @@ async def _run_workflow(
         validation = await client.validate_upgrade()
         await _append_log(db, job, f"Validation response: {str(validation)[:200]}")
 
-        # Step 4 — Config backup
+        # Step 4 — Config backup (save returned bytes to disk)
         await _set_status(db, job, JobStatus.BACKING_UP)
         await _append_log(db, job, "Triggering config backup…")
-        await client.backup_config(form_fields)
-        await _append_log(db, job, "Config backup initiated")
+        backup_bytes = await client.backup_config(form_fields)
+        if backup_bytes:
+            backups_dir = Path(settings.backups_dir)
+            backups_dir.mkdir(parents=True, exist_ok=True)
+            safe_ip = device.ip_address.replace(".", "_")
+            backup_filename = f"job_{job.id}_{safe_ip}_config_backup.tar"
+            backup_path = backups_dir / backup_filename
+            backup_path.write_bytes(backup_bytes)
+            job.backup_path = str(backup_path)
+            await db.commit()
+            await _append_log(
+                db, job,
+                f"Config backup saved ({len(backup_bytes) / 1024:.0f} KB) — "
+                f"available for download from this job"
+            )
+        else:
+            await _append_log(db, job, "Config backup requested (no file returned by device)")
 
         # Step 5 — Create upload marker + upload firmware
         await _set_status(db, job, JobStatus.UPLOADING)
@@ -133,7 +149,30 @@ async def _run_workflow(
             db, job,
             f"Uploading {firmware.filename} ({firmware.file_size / 1024 / 1024:.1f} MB)…"
         )
-        await client.upload_firmware(firmware_path, form_fields)
+
+        # Stream firmware with live progress tracking — a background task persists the counter
+        progress: dict = {"sent": 0, "total": firmware.file_size}
+        job.upload_bytes_sent = 0
+        await db.commit()
+
+        async def _progress_updater() -> None:
+            while True:
+                await asyncio.sleep(2)
+                job.upload_bytes_sent = progress["sent"]
+                await db.commit()
+
+        updater = asyncio.create_task(_progress_updater())
+        try:
+            await client.upload_firmware(firmware_path, form_fields, progress=progress)
+        finally:
+            updater.cancel()
+            try:
+                await updater
+            except asyncio.CancelledError:
+                pass
+            job.upload_bytes_sent = progress["sent"]
+            await db.commit()
+
         await _append_log(db, job, "Firmware uploaded — device is installing and will reboot")
 
         # Step 6 — Wait for installation to complete, then wait for reboot
