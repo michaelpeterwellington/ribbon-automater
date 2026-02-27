@@ -13,6 +13,7 @@ from app.models import Customer, Device, DeviceType
 from app.schemas import DeviceCreate, DeviceOut, DeviceUpdate, MessageOut
 from app.services.audit import audit_log
 from app.services.crypto import decrypt_value, encrypt_value
+from app.services.dialogic_client import DialogicClient
 from app.services.ribbon_client import RibbonWebClient
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -228,8 +229,12 @@ async def delete_device(device_id: int, db: AsyncSession = Depends(get_db)):
 async def test_connection(device_id: int, db: AsyncSession = Depends(get_db)):
     device = await _get_or_404(db, device_id)
     password = decrypt_value(device.password_encrypted)
-    async with RibbonWebClient(device.ip_address, device.username, password) as client:
-        success, message = await client.test_connection()
+    if device.device_type == DeviceType.DIALOGIC:
+        async with DialogicClient(device.ip_address, device.username, password) as client:
+            success, message = await client.test_connection()
+    else:
+        async with RibbonWebClient(device.ip_address, device.username, password) as client:
+            success, message = await client.test_connection()
     return {"success": success, "message": message}
 
 
@@ -237,6 +242,18 @@ async def test_connection(device_id: int, db: AsyncSession = Depends(get_db)):
 async def check_version(device_id: int, db: AsyncSession = Depends(get_db)):
     device = await _get_or_404(db, device_id)
     password = decrypt_value(device.password_encrypted)
+
+    if device.device_type == DeviceType.DIALOGIC:
+        async with DialogicClient(device.ip_address, device.username, password) as client:
+            try:
+                version = await client.get_version()
+                device.current_version = version
+                device.last_checked_at = datetime.now(timezone.utc)
+                await db.commit()
+                return {"version": version, "updated": True, "hypervisor_type": None}
+            except Exception as e:
+                return {"version": None, "updated": False, "error": str(e)}
+
     async with RibbonWebClient(device.ip_address, device.username, password) as client:
         try:
             await client.login()
