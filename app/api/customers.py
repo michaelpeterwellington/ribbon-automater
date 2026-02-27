@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import Customer, Device
 from app.schemas import CustomerCreate, CustomerOut, CustomerUpdate, MessageOut
+from app.services.audit import audit_log
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
 
@@ -40,6 +41,8 @@ async def create_customer(payload: CustomerCreate, db: AsyncSession = Depends(ge
     db.add(customer)
     await db.commit()
     await db.refresh(customer)
+    await audit_log(db, "customer.created", f"Customer '{customer.name}' created",
+                    "customer", customer.id, {"name": customer.name})
     return CustomerOut.model_validate(customer)
 
 
@@ -64,12 +67,17 @@ async def update_customer(
         setattr(customer, key, value)
     await db.commit()
     await db.refresh(customer)
+    await audit_log(db, "customer.updated", f"Customer '{customer.name}' updated",
+                    "customer", customer.id, {"name": customer.name})
     return CustomerOut.model_validate(customer)
 
 
 @router.delete("/{customer_id}", response_model=MessageOut)
 async def delete_customer(customer_id: int, db: AsyncSession = Depends(get_db)):
     customer = await _get_or_404(db, customer_id)
+    name = customer.name
     await db.delete(customer)
     await db.commit()
+    await audit_log(db, "customer.deleted", f"Customer '{name}' deleted",
+                    "customer", customer_id, {"name": name})
     return MessageOut(message="Customer deleted")

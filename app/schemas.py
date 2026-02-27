@@ -111,6 +111,20 @@ class UpgradeJobOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Audit Log ──────────────────────────────────────────────────────────────
+
+class AuditLogOut(BaseModel):
+    id: int
+    timestamp: datetime
+    event_type: str
+    description: str
+    entity_type: str | None
+    entity_id: int | None
+    detail: str | None  # raw JSON string
+
+    model_config = {"from_attributes": True}
+
+
 # ── Email Config ───────────────────────────────────────────────────────────
 
 class EmailConfigIn(BaseModel):

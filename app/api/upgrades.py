@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models import Device, FirmwareFile, JobStatus, UpgradeJob
 from app.schemas import MessageOut, UpgradeJobCreate, UpgradeJobOut
+from app.services.audit import audit_log
 from app.services.scheduler import cancel_scheduled_upgrade, schedule_upgrade
 
 router = APIRouter(prefix="/api/upgrades", tags=["upgrades"])
@@ -78,12 +79,14 @@ async def create_job(
     db: AsyncSession = Depends(get_db),
 ):
     # Verify device and firmware exist
-    device = await db.execute(select(Device).where(Device.id == payload.device_id))
-    if not device.scalar_one_or_none():
+    dev_result = await db.execute(select(Device).where(Device.id == payload.device_id))
+    device = dev_result.scalar_one_or_none()
+    if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    fw = await db.execute(select(FirmwareFile).where(FirmwareFile.id == payload.firmware_id))
-    if not fw.scalar_one_or_none():
+    fw_result = await db.execute(select(FirmwareFile).where(FirmwareFile.id == payload.firmware_id))
+    firmware = fw_result.scalar_one_or_none()
+    if not firmware:
         raise HTTPException(status_code=404, detail="Firmware not found")
 
     job = UpgradeJob(
@@ -97,15 +100,23 @@ async def create_job(
     await db.commit()
     await db.refresh(job)
 
-    if payload.scheduled_at and payload.scheduled_at > datetime.now(timezone.utc):
-        # Schedule for future
+    is_scheduled = payload.scheduled_at and payload.scheduled_at > datetime.now(timezone.utc)
+    if is_scheduled:
         aps_id = schedule_upgrade(job.id, payload.scheduled_at)
         job.apscheduler_job_id = aps_id
         await db.commit()
+        await audit_log(db, "job.created",
+                        f"Upgrade job #{job.id} scheduled for {payload.scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}: "
+                        f"'{device.name}' → {firmware.filename}",
+                        "job", job.id,
+                        {"device": device.name, "firmware": firmware.filename,
+                         "scheduled_at": payload.scheduled_at.isoformat()})
     else:
-        # Run immediately in background
-        from app.services.upgrade_service import run_upgrade_job
         background_tasks.add_task(_run_in_thread, job.id)
+        await audit_log(db, "job.created",
+                        f"Immediate upgrade job #{job.id} queued: '{device.name}' → {firmware.filename}",
+                        "job", job.id,
+                        {"device": device.name, "firmware": firmware.filename, "immediate": True})
 
     result = await db.execute(
         select(UpgradeJob)
@@ -155,9 +166,13 @@ async def cancel_job(job_id: int, db: AsyncSession = Depends(get_db)):
             status_code=409,
             detail=f"Cannot cancel a job with status '{job.status}'. Only pending jobs can be cancelled.",
         )
+    device_name = job.device.name if job.device else f"device #{job.device_id}"
     if job.apscheduler_job_id:
         cancel_scheduled_upgrade(job.apscheduler_job_id)
     job.status = JobStatus.CANCELLED
     job.completed_at = datetime.now(timezone.utc)
     await db.commit()
+    await audit_log(db, "job.cancelled",
+                    f"Upgrade job #{job_id} cancelled (device: '{device_name}')",
+                    "job", job_id, {"device": device_name})
     return MessageOut(message="Job cancelled")

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h1><i class="bi bi-journal-check me-2 text-primary"></i>Audit Log</h1>
+  <div class="d-flex gap-2 align-items-center">
+    <select class="form-select form-select-sm" id="filter-entity" style="width:150px">
+      <option value="">All types</option>
+      <option value="customer">Customers</option>
+      <option value="device">Devices</option>
+      <option value="firmware">Firmware</option>
+      <option value="job">Jobs</option>
+    </select>
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadAudit()">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+    <a id="export-btn" href="/api/audit/export.csv" class="btn btn-sm btn-outline-success">
+      <i class="bi bi-file-earmark-spreadsheet me-1"></i>Export CSV
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0" id="audit-table">
+      <thead><tr>
+        <th style="width:160px">Time</th>
+        <th style="width:180px">Event</th>
+        <th>Description</th>
+        <th style="width:90px">Entity</th>
+        <th style="width:70px">ID</th>
+      </tr></thead>
+      <tbody><tr><td colspan="5" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const EVENT_COLORS = {
+  'customer.created': 'primary',
+  'customer.updated': 'info',
+  'customer.deleted': 'danger',
+  'device.created':   'primary',
+  'device.updated':   'info',
+  'device.deleted':   'danger',
+  'device.bulk_imported': 'secondary',
+  'firmware.uploaded': 'purple',
+  'firmware.deleted':  'danger',
+  'job.created':    'secondary',
+  'job.completed':  'success',
+  'job.failed':     'danger',
+  'job.cancelled':  'warning',
+};
+
+function eventBadge(type) {
+  const color = EVENT_COLORS[type] || 'secondary';
+  const label = type.replace('.', ' ').replace('_', ' ');
+  const style = color === 'purple'
+    ? 'style="background:#6f42c1"'
+    : ``;
+  return `<span class="badge bg-${color === 'purple' ? 'secondary' : color}" ${style}>${label}</span>`;
+}
+
+document.getElementById('filter-entity').addEventListener('change', loadAudit);
+
+async function loadAudit() {
+  const entityType = document.getElementById('filter-entity').value;
+  const params = new URLSearchParams();
+  if (entityType) params.set('entity_type', entityType);
+
+  // Keep the export link in sync with current filter
+  const exportUrl = '/api/audit/export.csv' + (params.toString() ? '?' + params.toString() : '');
+  document.getElementById('export-btn').href = exportUrl;
+
+  const rows = await api('GET', '/api/audit' + (params.toString() ? '?' + params.toString() : ''));
+  const tbody = document.querySelector('#audit-table tbody');
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No audit events recorded yet</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td><small class="text-muted font-monospace">${new Date(r.timestamp).toLocaleString()}</small></td>
+      <td>${eventBadge(r.event_type)}</td>
+      <td>${escHtml(r.description)}</td>
+      <td><small class="text-muted">${r.entity_type || '—'}</small></td>
+      <td><small class="text-muted">${r.entity_id != null ? '#' + r.entity_id : '—'}</small></td>
+    </tr>`).join('');
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+loadAudit();
+</script>
+{% endblock %}

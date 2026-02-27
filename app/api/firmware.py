@@ -11,6 +11,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import FirmwareFile, JobStatus, UpgradeJob
 from app.schemas import FirmwareOut, MessageOut
+from app.services.audit import audit_log
 
 router = APIRouter(prefix="/api/firmware", tags=["firmware"])
 
@@ -93,6 +94,13 @@ async def upload_firmware(
     db.add(fw)
     await db.commit()
     await db.refresh(fw)
+    await audit_log(db, "firmware.uploaded",
+                    f"Firmware '{file.filename}' v{version} uploaded "
+                    f"({total_size / 1048576:.1f} MB)",
+                    "firmware", fw.id,
+                    {"filename": file.filename, "version": version,
+                     "size_mb": round(total_size / 1048576, 1),
+                     "compatible_types": types_list})
     return _firmware_to_out(fw)
 
 
@@ -118,6 +126,8 @@ async def delete_firmware(firmware_id: int, db: AsyncSession = Depends(get_db)):
             detail="Cannot delete firmware referenced by an active upgrade job",
         )
 
+    filename, version_str = fw.filename, fw.version
+
     # Remove file from disk
     file_path = Path(fw.file_path)
     if file_path.exists():
@@ -125,4 +135,7 @@ async def delete_firmware(firmware_id: int, db: AsyncSession = Depends(get_db)):
 
     await db.delete(fw)
     await db.commit()
+    await audit_log(db, "firmware.deleted",
+                    f"Firmware '{filename}' v{version_str} deleted",
+                    "firmware", firmware_id, {"filename": filename, "version": version_str})
     return MessageOut(message="Firmware deleted")

@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models import Device, FirmwareFile, JobStatus, UpgradeJob
+from app.services.audit import audit_log
 from app.services.crypto import decrypt_value
 from app.services.ribbon_client import RibbonLoginError, RibbonUpgradeError, RibbonWebClient
 
@@ -85,6 +86,11 @@ async def _async_run_upgrade_job(job_id: int) -> None:
         except Exception as e:
             await _set_status(db, job, JobStatus.FAILED)
             await _append_log(db, job, f"FATAL ERROR: {e}")
+            await audit_log(db, "job.failed",
+                            f"Upgrade job #{job.id} FAILED — {device.name} ({device.ip_address})",
+                            "job", job.id,
+                            {"device": device.name, "ip": device.ip_address,
+                             "firmware": firmware.filename, "error": str(e)[:500]})
             await _send_notification(db, job, device, firmware, "failed")
 
 
@@ -205,6 +211,12 @@ async def _run_workflow(
         job.completed_at = datetime.now(timezone.utc)
         await _append_log(db, job, "Upgrade COMPLETE")
         await db.commit()
+        await audit_log(db, "job.completed",
+                        f"Upgrade job #{job.id} COMPLETED — {device.name} now running "
+                        f"{new_version or firmware.version}",
+                        "job", job.id,
+                        {"device": device.name, "ip": device.ip_address,
+                         "firmware": firmware.filename, "new_version": new_version})
 
     await _send_notification(db, job, device, firmware, "complete")
 

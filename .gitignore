@@ -24,3 +24,4 @@ uploads/*
 *.swo
 .idea/
 .vscode/
+shared/*.img*\nshared/*.pcapng\nshared/*.gz

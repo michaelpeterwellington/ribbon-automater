@@ -84,6 +84,11 @@
         <i class="bi bi-arrow-up-circle"></i> Upgrade Jobs
       </a>
     </li>
+    <li class="nav-item">
+      <a class="nav-link {% if request.url.path == '/audit' %}active{% endif %}" href="/audit">
+        <i class="bi bi-journal-check"></i> Audit Log
+      </a>
+    </li>
     <li class="nav-item mt-auto mb-2">
       <a class="nav-link {% if request.url.path == '/settings' %}active{% endif %}" href="/settings">
         <i class="bi bi-gear"></i> Settings

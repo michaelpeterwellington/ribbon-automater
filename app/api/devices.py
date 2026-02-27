@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models import Customer, Device, DeviceType
 from app.schemas import DeviceCreate, DeviceOut, DeviceUpdate, MessageOut
+from app.services.audit import audit_log
 from app.services.crypto import decrypt_value, encrypt_value
 from app.services.ribbon_client import RibbonWebClient
 
@@ -123,6 +124,15 @@ async def bulk_import_devices(
 
     if devices_created or customers_created:
         await db.commit()
+        await audit_log(
+            db, "device.bulk_imported",
+            f"Bulk import: {len(devices_created)} device(s) added, "
+            f"{len(customers_created)} customer(s) created"
+            + (f", {len(errors)} error(s)" if errors else ""),
+            "device", None,
+            {"devices": devices_created, "customers_created": customers_created,
+             "error_count": len(errors)},
+        )
 
     return {
         "customers_created": customers_created,
@@ -149,8 +159,9 @@ async def list_devices(
 @router.post("", response_model=DeviceOut, status_code=201)
 async def create_device(payload: DeviceCreate, db: AsyncSession = Depends(get_db)):
     # Verify customer exists
-    cust = await db.execute(select(Customer).where(Customer.id == payload.customer_id))
-    if not cust.scalar_one_or_none():
+    cust_result = await db.execute(select(Customer).where(Customer.id == payload.customer_id))
+    customer = cust_result.scalar_one_or_none()
+    if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
 
     data = payload.model_dump()
@@ -164,6 +175,11 @@ async def create_device(payload: DeviceCreate, db: AsyncSession = Depends(get_db
         select(Device).where(Device.id == device.id).options(selectinload(Device.customer))
     )
     device = result.scalar_one()
+    await audit_log(db, "device.created",
+                    f"Device '{device.name}' ({device.ip_address}) added to customer '{customer.name}'",
+                    "device", device.id,
+                    {"name": device.name, "ip": device.ip_address, "type": device.device_type,
+                     "customer": customer.name})
     return _to_out(device)
 
 
@@ -188,14 +204,22 @@ async def update_device(
     result = await db.execute(
         select(Device).where(Device.id == device_id).options(selectinload(Device.customer))
     )
-    return _to_out(result.scalar_one())
+    device = result.scalar_one()
+    await audit_log(db, "device.updated", f"Device '{device.name}' updated",
+                    "device", device_id, {"name": device.name, "ip": device.ip_address})
+    return _to_out(device)
 
 
 @router.delete("/{device_id}", response_model=MessageOut)
 async def delete_device(device_id: int, db: AsyncSession = Depends(get_db)):
     device = await _get_or_404(db, device_id)
+    name, ip = device.name, device.ip_address
+    customer_name = device.customer.name if device.customer else None
     await db.delete(device)
     await db.commit()
+    await audit_log(db, "device.deleted",
+                    f"Device '{name}' ({ip}) deleted" + (f" from customer '{customer_name}'" if customer_name else ""),
+                    "device", device_id, {"name": name, "ip": ip, "customer": customer_name})
     return MessageOut(message="Device deleted")
 
 

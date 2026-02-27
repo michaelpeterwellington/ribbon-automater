@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.api import customers, devices, firmware, settings_api, upgrades
+from app.api import audit, customers, devices, firmware, settings_api, upgrades
 from app.database import init_db
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -41,6 +41,7 @@ app.include_router(devices.router)
 app.include_router(firmware.router)
 app.include_router(upgrades.router)
 app.include_router(settings_api.router)
+app.include_router(audit.router)
 
 
 # ── Health check ───────────────────────────────────────────────────────────
@@ -85,3 +86,8 @@ async def upgrades_page(request: Request):
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     return templates.TemplateResponse("settings.html", {"request": request})
+
+
+@app.get("/audit", response_class=HTMLResponse)
+async def audit_page(request: Request):
+    return templates.TemplateResponse("audit.html", {"request": request})
