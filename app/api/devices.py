@@ -1,13 +1,15 @@
 import asyncio
+import csv
+import io
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models import Customer, Device
+from app.models import Customer, Device, DeviceType
 from app.schemas import DeviceCreate, DeviceOut, DeviceUpdate, MessageOut
 from app.services.crypto import decrypt_value, encrypt_value
 from app.services.ribbon_client import RibbonWebClient
@@ -30,6 +32,103 @@ def _to_out(device: Device) -> DeviceOut:
     if device.customer:
         d.customer_name = device.customer.name
     return d
+
+
+_TYPE_ALIASES: dict[str, str] = {
+    "swe_edge": "SWE_EDGE", "swe edge": "SWE_EDGE", "sweedge": "SWE_EDGE", "swe": "SWE_EDGE",
+    "sbc1k": "SBC1K", "sbc 1000": "SBC1K", "sbc1000": "SBC1K", "1000": "SBC1K",
+    "sbc2k": "SBC2K", "sbc 2000": "SBC2K", "sbc2000": "SBC2K", "2000": "SBC2K",
+}
+
+
+def _normalise_headers(row: dict) -> dict:
+    """Return a copy of row with keys lowercased and spaces replaced with underscores."""
+    return {k.strip().lower().replace(" ", "_"): v for k, v in row.items()}
+
+
+@router.post("/bulk-import")
+async def bulk_import_devices(
+    file: UploadFile = File(...), db: AsyncSession = Depends(get_db)
+):
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+
+    customers_created: list[str] = []
+    devices_created: list[str] = []
+    errors: list[dict] = []
+
+    # Pre-load existing customers into cache keyed by lowercase name
+    customer_cache: dict[str, Customer] = {}
+    result = await db.execute(select(Customer))
+    for c in result.scalars():
+        customer_cache[c.name.lower()] = c
+
+    for row_num, raw_row in enumerate(reader, start=2):
+        row = _normalise_headers(raw_row)
+        try:
+            customer_name = row.get("customer", "").strip()
+            device_name = (row.get("name") or row.get("device", "")).strip()
+            ip_address = (row.get("ip_address") or row.get("ip", "")).strip()
+            raw_type = (row.get("type") or row.get("device_type", "")).strip()
+            username = row.get("username", "").strip() or "admin"
+            password = row.get("password", "").strip()
+
+            missing = [
+                f for f, v in [
+                    ("customer", customer_name), ("name", device_name),
+                    ("ip_address", ip_address), ("type", raw_type),
+                ]
+                if not v
+            ]
+            if missing:
+                errors.append({"row": row_num, "error": f"Missing required column(s): {', '.join(missing)}"})
+                continue
+
+            device_type_key = _TYPE_ALIASES.get(raw_type.lower())
+            if not device_type_key:
+                errors.append({
+                    "row": row_num,
+                    "error": f"Unknown device type '{raw_type}'. Use SWE_EDGE, SBC1K, or SBC2K",
+                })
+                continue
+
+            ckey = customer_name.lower()
+            if ckey not in customer_cache:
+                customer = Customer(name=customer_name)
+                db.add(customer)
+                await db.flush()
+                customer_cache[ckey] = customer
+                customers_created.append(customer_name)
+            else:
+                customer = customer_cache[ckey]
+
+            device = Device(
+                customer_id=customer.id,
+                name=device_name,
+                ip_address=ip_address,
+                device_type=DeviceType(device_type_key),
+                username=username,
+                password_encrypted=encrypt_value(password),
+            )
+            db.add(device)
+            devices_created.append(device_name)
+
+        except Exception as exc:
+            errors.append({"row": row_num, "error": str(exc)})
+
+    if devices_created or customers_created:
+        await db.commit()
+
+    return {
+        "customers_created": customers_created,
+        "devices_created": devices_created,
+        "errors": errors,
+    }
 
 
 @router.get("", response_model=list[DeviceOut])

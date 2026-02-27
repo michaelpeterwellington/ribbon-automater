@@ -5,6 +5,9 @@
   <h1><i class="bi bi-hdd-network me-2 text-primary"></i>All Devices</h1>
   <div class="d-flex gap-2 align-items-center">
     <input class="form-control form-control-sm" id="search" placeholder="Filter…" style="width:200px">
+    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#bulkImportModal">
+      <i class="bi bi-upload me-1"></i>Bulk Import
+    </button>
   </div>
 </div>
 
@@ -80,6 +83,40 @@
     </div>
   </div>
 </div>
+<!-- Bulk Import Modal -->
+<div class="modal fade" id="bulkImportModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-upload me-2"></i>Bulk Import Devices</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">
+          Upload a CSV file to add multiple devices at once. If a customer name doesn't exist it will be created automatically.
+          Accepted device types: <code>SWE_EDGE</code>, <code>SBC1K</code>, <code>SBC2K</code> (or common aliases like "SWe Edge", "SBC 1000", "SBC 2000").
+        </p>
+        <div class="mb-3">
+          <button class="btn btn-sm btn-outline-secondary" id="download-template">
+            <i class="bi bi-file-earmark-spreadsheet me-1"></i>Download CSV Template
+          </button>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Select CSV file *</label>
+          <input class="form-control" type="file" id="import-file" accept=".csv,text/csv">
+        </div>
+        <div id="import-results" class="d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button class="btn btn-primary" id="import-run">
+          <i class="bi bi-cloud-upload me-1"></i>Import
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script>
@@ -215,5 +252,63 @@ document.getElementById('upg-run').addEventListener('click', async () => {
 });
 
 loadDevices();
+
+document.getElementById('download-template').addEventListener('click', () => {
+  const csv = 'customer,name,ip_address,type,username,password\n' +
+    'Acme Corp,Main Office SBC,10.0.0.1,SWE_EDGE,admin,changeme\n' +
+    'Acme Corp,Branch SBC,10.0.0.2,SBC1K,admin,changeme\n' +
+    'Other Customer,HQ Device,192.168.1.10,SBC2K,admin,changeme\n';
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'devices_import_template.csv';
+  a.click();
+});
+
+document.getElementById('import-run').addEventListener('click', async () => {
+  const fileInput = document.getElementById('import-file');
+  const resultsEl = document.getElementById('import-results');
+  if (!fileInput.files.length) {
+    alert('Please select a CSV file first.');
+    return;
+  }
+  const btn = document.getElementById('import-run');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Importing…';
+  resultsEl.className = 'd-none';
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+
+  try {
+    const resp = await fetch('/api/devices/bulk-import', { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Import failed');
+
+    let html = '';
+    if (data.customers_created.length) {
+      html += `<div class="alert alert-info py-2 mb-2"><strong>${data.customers_created.length} new customer(s) created:</strong> ${data.customers_created.join(', ')}</div>`;
+    }
+    if (data.devices_created.length) {
+      html += `<div class="alert alert-success py-2 mb-2"><strong>${data.devices_created.length} device(s) imported successfully:</strong> ${data.devices_created.join(', ')}</div>`;
+    }
+    if (data.errors.length) {
+      html += `<div class="alert alert-danger py-2 mb-2"><strong>${data.errors.length} error(s):</strong><ul class="mb-0 mt-1">` +
+        data.errors.map(e => `<li>Row ${e.row}: ${e.error}</li>`).join('') + '</ul></div>';
+    }
+    if (!data.devices_created.length && !data.customers_created.length && !data.errors.length) {
+      html = '<div class="alert alert-warning py-2">No rows were processed. Check that the file has data rows below the header.</div>';
+    }
+    resultsEl.innerHTML = html;
+    resultsEl.className = '';
+    if (data.devices_created.length) loadDevices();
+  } catch(e) {
+    resultsEl.innerHTML = `<div class="alert alert-danger py-2">${e.message}</div>`;
+    resultsEl.className = '';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Import';
+  }
+});
 </script>
 {% endblock %}
