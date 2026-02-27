@@ -30,6 +30,8 @@
             <label class="form-check-label" for="compat-1k">SBC 1000</label></div>
           <div class="form-check"><input class="form-check-input" type="checkbox" value="SBC2K" id="compat-2k">
             <label class="form-check-label" for="compat-2k">SBC 2000</label></div>
+          <div class="form-check"><input class="form-check-input" type="checkbox" value="DIALOGIC" id="compat-dialogic">
+            <label class="form-check-label" for="compat-dialogic">Dialogic SBC</label></div>
         </div>
       </div>
       <div class="col-md-2">
@@ -101,7 +103,7 @@ uploadBtn.addEventListener('click', () => {
   const version = document.getElementById('fw-version').value.trim();
   if (!version) return alert('Version is required');
 
-  const types = ['compat-swe','compat-1k','compat-2k']
+  const types = ['compat-swe','compat-1k','compat-2k','compat-dialogic']
     .filter(id => document.getElementById(id).checked)
     .map(id => document.getElementById(id).value);
 
