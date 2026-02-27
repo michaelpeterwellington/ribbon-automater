@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Ribbon SBC Upgrades{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h1><i class="bi bi-speedometer2 me-2 text-primary"></i>Dashboard</h1>
+</div>
+
+<!-- Stats row -->
+<div class="row g-3 mb-4" id="stats-row">
+  <div class="col-6 col-lg-3">
+    <div class="card p-3 text-center">
+      <div class="fs-1 fw-bold text-primary" id="stat-customers">—</div>
+      <div class="text-muted small">Customers</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card p-3 text-center">
+      <div class="fs-1 fw-bold text-info" id="stat-devices">—</div>
+      <div class="text-muted small">Devices</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card p-3 text-center">
+      <div class="fs-1 fw-bold text-warning" id="stat-pending">—</div>
+      <div class="text-muted small">Active / Pending Jobs</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card p-3 text-center">
+      <div class="fs-1 fw-bold text-success" id="stat-firmware">—</div>
+      <div class="text-muted small">Firmware Files</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Recent jobs -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history me-1"></i> Recent Upgrade Jobs</span>
+        <a href="/upgrades" class="btn btn-sm btn-outline-secondary">View all</a>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th>Device</th><th>Customer</th><th>Firmware</th>
+            <th>Status</th><th>Scheduled / Started</th>
+          </tr></thead>
+          <tbody id="recent-jobs"><tr><td colspan="5" class="text-center text-muted py-3">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <!-- Devices needing attention -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-exclamation-triangle me-1 text-warning"></i> Unknown Version</div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" id="unknown-devices">
+          <li class="list-group-item text-muted">Loading…</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadDashboard() {
+  const [customers, devices, jobs, firmware] = await Promise.all([
+    api('GET', '/api/customers'),
+    api('GET', '/api/devices'),
+    api('GET', '/api/upgrades'),
+    api('GET', '/api/firmware'),
+  ]);
+
+  document.getElementById('stat-customers').textContent = customers.length;
+  document.getElementById('stat-devices').textContent = devices.length;
+  document.getElementById('stat-firmware').textContent = firmware.length;
+
+  const activeStatuses = ['pending','login','scraping','validating','backing_up','uploading','rebooting','verifying'];
+  const active = jobs.filter(j => activeStatuses.includes(j.status));
+  document.getElementById('stat-pending').textContent = active.length;
+
+  // Recent jobs
+  const tbody = document.getElementById('recent-jobs');
+  const recent = jobs.slice(0, 20);
+  if (recent.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No jobs yet</td></tr>';
+  } else {
+    tbody.innerHTML = recent.map(j => `
+      <tr style="cursor:pointer" onclick="location.href='/upgrades'">
+        <td>${j.device_name||'—'}</td>
+        <td>${j.customer_name||'—'}</td>
+        <td><small>${j.firmware_filename||'—'}</small></td>
+        <td>${statusBadge(j.status)}</td>
+        <td><small>${fmtDate(j.scheduled_at||j.started_at)}</small></td>
+      </tr>`).join('');
+  }
+
+  // Unknown-version devices
+  const ul = document.getElementById('unknown-devices');
+  const unknown = devices.filter(d => !d.current_version);
+  if (unknown.length === 0) {
+    ul.innerHTML = '<li class="list-group-item text-success"><i class="bi bi-check-circle me-1"></i>All versions known</li>';
+  } else {
+    ul.innerHTML = unknown.map(d => `
+      <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+        <span><small class="text-muted">${d.customer_name||''}</small><br>${d.device_name||d.name}</span>
+        <a href="/devices" class="btn btn-xs btn-outline-warning btn-sm py-0 px-1">
+          <i class="bi bi-arrow-clockwise"></i>
+        </a>
+      </li>`).join('');
+  }
+}
+loadDashboard();
+</script>
+{% endblock %}

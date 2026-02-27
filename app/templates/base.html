@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Ribbon SBC Upgrades{% endblock %}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    body { min-height: 100vh; }
+    #sidebar {
+      width: 230px; min-height: 100vh;
+      background: #1a1d20;
+      border-right: 1px solid #2c2f33;
+      flex-shrink: 0;
+    }
+    #sidebar .brand { padding: 1.25rem 1rem; border-bottom: 1px solid #2c2f33; }
+    #sidebar .brand span { font-size: 1rem; font-weight: 600; color: #e0e0e0; }
+    #sidebar .nav-link {
+      color: #adb5bd; padding: .55rem 1rem; border-radius: .375rem;
+      margin: 2px 8px; display: flex; align-items: center; gap: .55rem;
+    }
+    #sidebar .nav-link:hover, #sidebar .nav-link.active {
+      background: #2c3036; color: #fff;
+    }
+    #sidebar .nav-link i { width: 18px; text-align: center; font-size: 1rem; }
+    #main { flex: 1; padding: 1.5rem 2rem; background: #111316; min-height: 100vh; }
+    .page-header { margin-bottom: 1.5rem; border-bottom: 1px solid #2c2f33; padding-bottom: .75rem; }
+    .page-header h1 { font-size: 1.4rem; font-weight: 600; margin: 0; }
+
+    /* Status badges */
+    .badge-pending    { background: #495057; }
+    .badge-login      { background: #0d6efd; }
+    .badge-scraping   { background: #0d6efd; }
+    .badge-validating { background: #0d6efd; }
+    .badge-backing_up { background: #6f42c1; }
+    .badge-uploading  { background: #fd7e14; }
+    .badge-rebooting  { background: #ffc107; color: #000; }
+    .badge-verifying  { background: #20c997; }
+    .badge-complete   { background: #198754; }
+    .badge-failed     { background: #dc3545; }
+    .badge-cancelled  { background: #6c757d; }
+
+    .log-box {
+      background: #0d0f11; font-family: monospace; font-size: .8rem;
+      border-radius: .375rem; padding: .75rem; max-height: 400px;
+      overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    }
+    .card { background: #1a1d20; border-color: #2c2f33; }
+    .table { --bs-table-bg: transparent; }
+    .modal-content { background: #1a1d20; }
+  </style>
+</head>
+<body class="d-flex">
+
+<nav id="sidebar" class="d-flex flex-column">
+  <div class="brand d-flex align-items-center gap-2">
+    <i class="bi bi-router fs-4 text-primary"></i>
+    <span>Ribbon Upgrades</span>
+  </div>
+  <ul class="nav flex-column mt-2 flex-grow-1">
+    <li class="nav-item">
+      <a class="nav-link {% if request.url.path == '/' %}active{% endif %}" href="/">
+        <i class="bi bi-speedometer2"></i> Dashboard
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if '/customers' in request.url.path %}active{% endif %}" href="/customers">
+        <i class="bi bi-building"></i> Customers
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if request.url.path == '/devices' %}active{% endif %}" href="/devices">
+        <i class="bi bi-hdd-network"></i> Devices
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if request.url.path == '/firmware' %}active{% endif %}" href="/firmware">
+        <i class="bi bi-archive"></i> Firmware Library
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if request.url.path == '/upgrades' %}active{% endif %}" href="/upgrades">
+        <i class="bi bi-arrow-up-circle"></i> Upgrade Jobs
+      </a>
+    </li>
+    <li class="nav-item mt-auto mb-2">
+      <a class="nav-link {% if request.url.path == '/settings' %}active{% endif %}" href="/settings">
+        <i class="bi bi-gear"></i> Settings
+      </a>
+    </li>
+  </ul>
+</nav>
+
+<main id="main">
+  {% block content %}{% endblock %}
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function statusBadge(status) {
+  return `<span class="badge badge-${status}">${status.replace('_',' ')}</span>`;
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString();
+}
+async function api(method, url, body) {
+  const opts = { method, headers: {} };
+  if (body && !(body instanceof FormData)) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  } else if (body) {
+    opts.body = body;
+  }
+  const r = await fetch(url, opts);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({ detail: r.statusText }));
+    throw new Error(err.detail || r.statusText);
+  }
+  return r.status === 204 ? null : r.json();
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Customers{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h1><i class="bi bi-building me-2 text-primary"></i>Customers</h1>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addModal">
+    <i class="bi bi-plus-lg me-1"></i>Add Customer
+  </button>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0" id="customers-table">
+      <thead><tr>
+        <th>Name</th><th>Contact</th><th>Email</th><th>Devices</th><th></th>
+      </tr></thead>
+      <tbody><tr><td colspan="5" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Customer Modal -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Add Customer</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-3"><label class="form-label">Name *</label>
+          <input class="form-control" id="add-name" required></div>
+        <div class="mb-3"><label class="form-label">Contact Name</label>
+          <input class="form-control" id="add-contact"></div>
+        <div class="mb-3"><label class="form-label">Contact Email</label>
+          <input class="form-control" type="email" id="add-email"></div>
+        <div class="mb-3"><label class="form-label">Notes</label>
+          <textarea class="form-control" id="add-notes" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="add-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Customer Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Edit Customer</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-id">
+        <div class="mb-3"><label class="form-label">Name *</label>
+          <input class="form-control" id="edit-name" required></div>
+        <div class="mb-3"><label class="form-label">Contact Name</label>
+          <input class="form-control" id="edit-contact"></div>
+        <div class="mb-3"><label class="form-label">Contact Email</label>
+          <input class="form-control" type="email" id="edit-email"></div>
+        <div class="mb-3"><label class="form-label">Notes</label>
+          <textarea class="form-control" id="edit-notes" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger me-auto" id="edit-delete">Delete</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="edit-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadCustomers() {
+  const customers = await api('GET', '/api/customers');
+  const tbody = document.querySelector('#customers-table tbody');
+  if (!customers.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No customers yet — add one to get started</td></tr>';
+    return;
+  }
+  tbody.innerHTML = customers.map(c => `
+    <tr>
+      <td><a href="/customers/${c.id}" class="text-decoration-none fw-semibold">${c.name}</a></td>
+      <td>${c.contact_name||'—'}</td>
+      <td>${c.contact_email||'—'}</td>
+      <td><span class="badge bg-secondary">${c.device_count}</span></td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-secondary" onclick="openEdit(${c.id},'${c.name}','${c.contact_name||''}','${c.contact_email||''}','${(c.notes||'').replace(/'/g,'&#39;')}')">
+          <i class="bi bi-pencil"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+document.getElementById('add-save').addEventListener('click', async () => {
+  const name = document.getElementById('add-name').value.trim();
+  if (!name) return alert('Name is required');
+  await api('POST', '/api/customers', {
+    name, contact_name: document.getElementById('add-contact').value||null,
+    contact_email: document.getElementById('add-email').value||null,
+    notes: document.getElementById('add-notes').value||null
+  });
+  bootstrap.Modal.getInstance(document.getElementById('addModal')).hide();
+  loadCustomers();
+});
+
+function openEdit(id, name, contact, email, notes) {
+  document.getElementById('edit-id').value = id;
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-contact').value = contact;
+  document.getElementById('edit-email').value = email;
+  document.getElementById('edit-notes').value = notes;
+  new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+document.getElementById('edit-save').addEventListener('click', async () => {
+  const id = document.getElementById('edit-id').value;
+  await api('PUT', `/api/customers/${id}`, {
+    name: document.getElementById('edit-name').value,
+    contact_name: document.getElementById('edit-contact').value||null,
+    contact_email: document.getElementById('edit-email').value||null,
+    notes: document.getElementById('edit-notes').value||null
+  });
+  bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+  loadCustomers();
+});
+
+document.getElementById('edit-delete').addEventListener('click', async () => {
+  if (!confirm('Delete this customer and all their devices?')) return;
+  const id = document.getElementById('edit-id').value;
+  await api('DELETE', `/api/customers/${id}`);
+  bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+  loadCustomers();
+});
+
+loadCustomers();
+</script>
+{% endblock %}

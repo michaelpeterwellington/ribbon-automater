@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1><i class="bi bi-gear me-2 text-primary"></i>Settings</h1>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-envelope me-1"></i> Email Notifications (SMTP)</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-8">
+            <label class="form-label">SMTP Host</label>
+            <input class="form-control" id="smtp-host" placeholder="smtp.example.com">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Port</label>
+            <input class="form-control" id="smtp-port" type="number" value="587">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Username</label>
+            <input class="form-control" id="smtp-user" placeholder="alerts@example.com">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Password</label>
+            <input class="form-control" id="smtp-pass" type="password" placeholder="(unchanged if blank)">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">From Address</label>
+            <input class="form-control" id="smtp-from" placeholder="ribbon-upgrades@example.com">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Default To Address</label>
+            <input class="form-control" id="smtp-to" placeholder="noc@example.com">
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="smtp-tls" checked>
+              <label class="form-check-label" for="smtp-tls">Use STARTTLS</label>
+            </div>
+            <div class="form-check form-switch mt-1">
+              <input class="form-check-input" type="checkbox" id="smtp-enabled">
+              <label class="form-check-label" for="smtp-enabled">Enable email notifications</label>
+            </div>
+          </div>
+        </div>
+        <div class="mt-3 d-flex gap-2">
+          <button class="btn btn-primary" id="save-email"><i class="bi bi-check-lg me-1"></i>Save</button>
+          <button class="btn btn-outline-secondary" id="test-email"><i class="bi bi-send me-1"></i>Send Test Email</button>
+        </div>
+        <div id="email-msg" class="mt-2 d-none"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header"><i class="bi bi-info-circle me-1"></i> About</div>
+      <div class="card-body">
+        <p class="mb-1"><strong>Ribbon SBC Upgrade Automation</strong></p>
+        <p class="text-muted small mb-3">Automates firmware upgrades for Ribbon SWe Edge, SBC 1000, and SBC 2000 devices.</p>
+        <p class="small mb-1"><strong>Upgrade workflow:</strong></p>
+        <ol class="small text-muted">
+          <li>Login via web session (CGI)</li>
+          <li>Scrape upgrade page form fields</li>
+          <li>Pre-upgrade validation</li>
+          <li>Config backup</li>
+          <li>Firmware upload (<code>swDownload_do.phpx</code>)</li>
+          <li>Wait for reboot (~5–10 min)</li>
+          <li>Verify new version</li>
+        </ol>
+        <hr>
+        <p class="small text-muted mb-0">Credentials are encrypted at rest with Fernet symmetric encryption.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadEmailConfig() {
+  try {
+    const cfg = await api('GET', '/api/settings/email');
+    document.getElementById('smtp-host').value = cfg.smtp_host || '';
+    document.getElementById('smtp-port').value = cfg.smtp_port || 587;
+    document.getElementById('smtp-user').value = cfg.username || '';
+    document.getElementById('smtp-from').value = cfg.from_address || '';
+    document.getElementById('smtp-to').value = cfg.to_address_default || '';
+    document.getElementById('smtp-tls').checked = cfg.use_tls;
+    document.getElementById('smtp-enabled').checked = cfg.enabled;
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function showMsg(msg, ok) {
+  const el = document.getElementById('email-msg');
+  el.className = `mt-2 alert alert-${ok ? 'success' : 'danger'}`;
+  el.textContent = msg;
+  el.classList.remove('d-none');
+  setTimeout(() => el.classList.add('d-none'), 5000);
+}
+
+document.getElementById('save-email').addEventListener('click', async () => {
+  try {
+    await api('PUT', '/api/settings/email', {
+      smtp_host: document.getElementById('smtp-host').value,
+      smtp_port: +document.getElementById('smtp-port').value,
+      use_tls: document.getElementById('smtp-tls').checked,
+      username: document.getElementById('smtp-user').value,
+      password: document.getElementById('smtp-pass').value,
+      from_address: document.getElementById('smtp-from').value,
+      to_address_default: document.getElementById('smtp-to').value,
+      enabled: document.getElementById('smtp-enabled').checked,
+    });
+    showMsg('Settings saved', true);
+  } catch(e) {
+    showMsg('Error: ' + e.message, false);
+  }
+});
+
+document.getElementById('test-email').addEventListener('click', async () => {
+  try {
+    const r = await api('POST', '/api/settings/email/test');
+    showMsg(r.message, true);
+  } catch(e) {
+    showMsg('Error: ' + e.message, false);
+  }
+});
+
+loadEmailConfig();
+</script>
+{% endblock %}

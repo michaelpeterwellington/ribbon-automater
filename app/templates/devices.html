@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}All Devices{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h1><i class="bi bi-hdd-network me-2 text-primary"></i>All Devices</h1>
+  <div class="d-flex gap-2 align-items-center">
+    <input class="form-control form-control-sm" id="search" placeholder="Filter…" style="width:200px">
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0" id="devices-table">
+      <thead><tr>
+        <th>Device</th><th>Customer</th><th>IP</th><th>Type</th>
+        <th>Version</th><th>Last Checked</th><th></th>
+      </tr></thead>
+      <tbody><tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Edit Device Modal -->
+<div class="modal fade" id="editDeviceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Edit Device</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-dev-id">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">Device Name *</label>
+            <input class="form-control" id="edit-dev-name"></div>
+          <div class="col-md-6"><label class="form-label">IP Address *</label>
+            <input class="form-control" id="edit-dev-ip"></div>
+          <div class="col-md-4"><label class="form-label">Device Type *</label>
+            <select class="form-select" id="edit-dev-type">
+              <option value="SWE_EDGE">SWe Edge</option>
+              <option value="SBC1K">SBC 1000</option>
+              <option value="SBC2K">SBC 2000</option>
+            </select></div>
+          <div class="col-md-4"><label class="form-label">Username *</label>
+            <input class="form-control" id="edit-dev-user"></div>
+          <div class="col-md-4">
+            <label class="form-label">Password <small class="text-muted">(blank = unchanged)</small></label>
+            <input class="form-control" type="password" id="edit-dev-pass" placeholder="Leave blank to keep current">
+          </div>
+          <div class="col-12"><label class="form-label">Notes</label>
+            <textarea class="form-control" id="edit-dev-notes" rows="2"></textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger me-auto" id="delete-dev-btn">
+          <i class="bi bi-trash me-1"></i>Delete Device
+        </button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="save-dev-btn">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upgrade Modal -->
+<div class="modal fade" id="upgradeModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Queue Upgrade — <span id="upg-device-name"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="upg-device-id">
+        <div class="mb-3"><label class="form-label">Firmware *</label>
+          <select class="form-select" id="upg-firmware"></select></div>
+        <div class="mb-3"><label class="form-label">Schedule (blank = immediate)</label>
+          <input class="form-control" type="datetime-local" id="upg-when"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-warning" id="upg-run">Queue Upgrade</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let allDevices = [];
+
+async function loadDevices() {
+  const [devices, firmware] = await Promise.all([
+    api('GET', '/api/devices'),
+    api('GET', '/api/firmware'),
+  ]);
+  allDevices = devices;
+
+  const fwSel = document.getElementById('upg-firmware');
+  fwSel.innerHTML = firmware.map(f =>
+    `<option value="${f.id}">${f.filename} (v${f.version})</option>`).join('');
+
+  renderTable(devices);
+}
+
+function renderTable(devices) {
+  const tbody = document.querySelector('#devices-table tbody');
+  if (!devices.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No devices found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = devices.map(d => `
+    <tr>
+      <td class="fw-semibold">${d.name}</td>
+      <td><a href="/customers/${d.customer_id}" class="text-decoration-none text-muted">${d.customer_name||'—'}</a></td>
+      <td><code>${d.ip_address}</code></td>
+      <td><span class="badge bg-secondary">${d.device_type}</span></td>
+      <td id="ver-${d.id}">${d.current_version ? `<code>${d.current_version}</code>` : '<span class="text-warning">Unknown</span>'}</td>
+      <td><small>${d.last_checked_at ? new Date(d.last_checked_at).toLocaleString() : '—'}</small></td>
+      <td class="text-end" style="white-space:nowrap">
+        <button class="btn btn-sm btn-outline-info me-1" onclick="checkVersion(${d.id})" title="Check version">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-secondary me-1" onclick="openEdit(${d.id})" title="Edit device">
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-warning" onclick="openUpgrade(${d.id},'${d.name}')" title="Upgrade">
+          <i class="bi bi-arrow-up-circle"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+document.getElementById('search').addEventListener('input', e => {
+  const q = e.target.value.toLowerCase();
+  renderTable(allDevices.filter(d =>
+    d.name.toLowerCase().includes(q) ||
+    (d.customer_name||'').toLowerCase().includes(q) ||
+    d.ip_address.includes(q)
+  ));
+});
+
+async function checkVersion(deviceId) {
+  const cell = document.getElementById(`ver-${deviceId}`);
+  cell.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Checking…</span>';
+  const r = await fetch(`/api/devices/${deviceId}/check-version`, { method: 'POST' });
+  const data = await r.json();
+  if (data.version) {
+    cell.innerHTML = `<code>${data.version}</code>`;
+  } else if (data.error) {
+    cell.innerHTML = `<span class="text-danger" title="${data.error}"><i class="bi bi-exclamation-triangle me-1"></i>Error — hover for details</span>`;
+  } else {
+    cell.innerHTML = '<span class="text-warning">Unknown</span>';
+  }
+}
+
+async function openEdit(deviceId) {
+  const d = allDevices.find(x => x.id === deviceId);
+  if (!d) return;
+  document.getElementById('edit-dev-id').value = d.id;
+  document.getElementById('edit-dev-name').value = d.name;
+  document.getElementById('edit-dev-ip').value = d.ip_address;
+  document.getElementById('edit-dev-type').value = d.device_type;
+  document.getElementById('edit-dev-user').value = d.username;
+  document.getElementById('edit-dev-pass').value = '';
+  document.getElementById('edit-dev-notes').value = d.notes || '';
+  new bootstrap.Modal(document.getElementById('editDeviceModal')).show();
+}
+
+document.getElementById('save-dev-btn').addEventListener('click', async () => {
+  const id = document.getElementById('edit-dev-id').value;
+  const payload = {
+    name: document.getElementById('edit-dev-name').value,
+    ip_address: document.getElementById('edit-dev-ip').value,
+    device_type: document.getElementById('edit-dev-type').value,
+    username: document.getElementById('edit-dev-user').value,
+    notes: document.getElementById('edit-dev-notes').value || null,
+  };
+  const pass = document.getElementById('edit-dev-pass').value;
+  if (pass) payload.password = pass;
+  try {
+    await api('PUT', `/api/devices/${id}`, payload);
+    bootstrap.Modal.getInstance(document.getElementById('editDeviceModal')).hide();
+    loadDevices();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+});
+
+document.getElementById('delete-dev-btn').addEventListener('click', async () => {
+  const id = document.getElementById('edit-dev-id').value;
+  const name = document.getElementById('edit-dev-name').value;
+  if (!confirm(`Delete device "${name}"? This cannot be undone.`)) return;
+  try {
+    await api('DELETE', `/api/devices/${id}`);
+    bootstrap.Modal.getInstance(document.getElementById('editDeviceModal')).hide();
+    loadDevices();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+});
+
+function openUpgrade(deviceId, deviceName) {
+  document.getElementById('upg-device-id').value = deviceId;
+  document.getElementById('upg-device-name').textContent = deviceName;
+  new bootstrap.Modal(document.getElementById('upgradeModal')).show();
+}
+
+document.getElementById('upg-run').addEventListener('click', async () => {
+  const deviceId = +document.getElementById('upg-device-id').value;
+  const firmwareId = +document.getElementById('upg-firmware').value;
+  const when = document.getElementById('upg-when').value;
+  await api('POST', '/api/upgrades', {
+    device_id: deviceId, firmware_id: firmwareId,
+    scheduled_at: when ? new Date(when).toISOString() : null,
+  });
+  bootstrap.Modal.getInstance(document.getElementById('upgradeModal')).hide();
+  alert('Upgrade job created!');
+});
+
+loadDevices();
+</script>
+{% endblock %}

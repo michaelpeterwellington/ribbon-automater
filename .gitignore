@@ -1,0 +1,26 @@
+# Environment — contains SECRET_KEY, never commit
+.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Database and uploaded firmware (runtime data)
+data/ribbon.db
+uploads/*
+!uploads/.gitkeep
+
+# Logs
+*.log
+/tmp/
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
