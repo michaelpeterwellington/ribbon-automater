@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models import CertJob, CertificateFile, JobStatus
 from app.schemas import CertificateOut, MessageOut
 from app.services.audit import audit_log
+from app.services.crypto import encrypt_value
 
 router = APIRouter(prefix="/api/certificates", tags=["certificates"])
 
@@ -25,13 +26,24 @@ async def _get_or_404(db: AsyncSession, cert_id: int) -> CertificateFile:
     return cert
 
 
-def _parse_pem_info(pem_bytes: bytes) -> tuple[str | None, str | None]:
-    """Return (subject_cn, not_valid_after) parsed from a PEM cert, or (None, None)."""
+def _parse_cert_info(file_bytes: bytes, filename: str, pfx_password: str | None = None) -> tuple[str | None, str | None]:
+    """Return (subject_cn, not_valid_after) from a PEM or PFX/P12 cert."""
     try:
-        from cryptography import x509
-        from cryptography.hazmat.backends import default_backend
-        cert = x509.load_pem_x509_certificate(pem_bytes, default_backend())
-        cn_attr = cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
+        lower = filename.lower()
+        if lower.endswith(".pfx") or lower.endswith(".p12"):
+            from cryptography.hazmat.primitives.serialization import pkcs12
+            pwd = pfx_password.encode() if pfx_password else None
+            p12 = pkcs12.load_pkcs12(file_bytes, pwd)
+            cert = p12.cert.certificate if p12.cert else None
+            if not cert:
+                return None, None
+        else:
+            from cryptography import x509
+            from cryptography.hazmat.backends import default_backend
+            cert = x509.load_pem_x509_certificate(file_bytes, default_backend())
+
+        from cryptography import x509 as _x509
+        cn_attr = cert.subject.get_attributes_for_oid(_x509.NameOID.COMMON_NAME)
         subject_cn = cn_attr[0].value if cn_attr else None
         not_valid_after = cert.not_valid_after_utc.strftime("%b %d %H:%M:%S %Y GMT")
         return subject_cn, not_valid_after
@@ -44,12 +56,13 @@ async def list_certificates(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(CertificateFile).order_by(CertificateFile.uploaded_at.desc())
     )
-    return list(result.scalars())
+    return [CertificateOut.from_orm_cert(c) for c in result.scalars()]
 
 
 @router.post("", response_model=CertificateOut, status_code=201)
 async def upload_certificate(
     file: UploadFile = File(...),
+    password: str = Form(None),
     notes: str = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -67,16 +80,21 @@ async def upload_certificate(
         sha256.update(chunk)
         total_size += len(chunk)
 
-    pem_bytes = b"".join(chunks)
+    file_bytes = b"".join(chunks)
     with open(dest_path, "wb") as fh:
-        fh.write(pem_bytes)
+        fh.write(file_bytes)
 
-    subject_cn, not_valid_after = _parse_pem_info(pem_bytes)
+    subject_cn, not_valid_after = _parse_cert_info(file_bytes, file.filename, password)
+
+    lower = (file.filename or "").lower()
+    is_pfx = lower.endswith(".pfx") or lower.endswith(".p12")
+    pfx_password_encrypted = encrypt_value(password) if (is_pfx and password) else None
 
     cert = CertificateFile(
         filename=file.filename,
         subject_cn=subject_cn,
         not_valid_after=not_valid_after,
+        pfx_password_encrypted=pfx_password_encrypted,
         file_path=str(dest_path),
         file_size=total_size,
         sha256=sha256.hexdigest(),
@@ -93,7 +111,7 @@ async def upload_certificate(
         {"filename": file.filename, "subject_cn": subject_cn,
          "not_valid_after": not_valid_after, "size": total_size},
     )
-    return cert
+    return CertificateOut.from_orm_cert(cert)
 
 
 @router.delete("/{cert_id}", response_model=MessageOut)

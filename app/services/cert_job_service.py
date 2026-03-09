@@ -100,7 +100,11 @@ async def _run_cert_workflow(
 
         await _set_status(db, job, JobStatus.UPLOADING)
         await _append_log(db, job, f"Uploading certificate '{certificate.filename}'…")
-        result = await client.upload_certificate(cert_bytes, certificate.filename)
+        pfx_password = None
+        if certificate.pfx_password_encrypted:
+            from app.services.crypto import decrypt_value as _decrypt
+            pfx_password = _decrypt(certificate.pfx_password_encrypted)
+        result = await client.upload_certificate(cert_bytes, certificate.filename, pfx_password=pfx_password)
         await _append_log(db, job, f"Certificate uploaded — device response: {result[:200] or '(empty)'}")
 
         job.status = JobStatus.COMPLETE

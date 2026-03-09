@@ -555,32 +555,44 @@ class RibbonWebClient:
         logger.debug(f"Parsed certificate info: {list(raw.keys())}")
         return {"sections": sections, "raw": raw}
 
-    async def upload_certificate(self, cert_bytes: bytes, cert_filename: str) -> str:
+    async def upload_certificate(self, cert_bytes: bytes, cert_filename: str, pfx_password: str | None = None) -> str:
         """
-        Upload a PEM certificate to replace the platform (UX) server certificate.
+        Upload a PEM or PFX/P12 certificate to replace the platform (UX) server certificate.
 
-        Flow (mirrors what the browser does when clicking Import > X.509 Signed Certificate):
-          1. GET  /cgi/phpUI/config.php?cfg=/views/system/uxServerCertificateImport.xml&type=UXCertificate
-                  — loads the import dialog form, extracts all hidden fields
-          2. POST /cgi/phpUI/config_do.php
-                  — multipart form submit with cert file + all hidden fields
+        For PEM (.pem/.crt/.cer):
+          Uses /views/system/uxServerCertificateImport.xml (X.509 Signed Certificate flow).
 
-        Returns the response text from config_do.php (success or error message).
+        For PFX/P12 (.pfx/.p12):
+          Uses /views/system/uxServerCertificateImportP12.xml (PKCS12 flow).
+          Requires pfx_password to be passed as EncryptedPassword-Field.
+
+        Flow: GET config form → POST config_do.php with file + hidden fields.
+        Returns the response text from config_do.php.
         """
-        # Step 1 — Load the import form to get hidden fields
+        lower = cert_filename.lower()
+        is_pfx = lower.endswith(".pfx") or lower.endswith(".p12")
+
+        if is_pfx:
+            cfg_xml = "/views/system/uxServerCertificateImportP12.xml"
+        else:
+            cfg_xml = "/views/system/uxServerCertificateImport.xml"
+
+        # Step 1 — Load the import form to get hidden fields + file input name
         resp = await self._client.get(
             f"{self.base_url}/cgi/phpUI/config.php",
-            params={
-                "cfg": "/views/system/uxServerCertificateImport.xml",
-                "type": "UXCertificate",
-            },
+            params={"cfg": cfg_xml, "type": "UXCertificate"},
         )
         soup = BeautifulSoup(resp.text, "lxml")
         fields: dict[str, str] = {}
+        file_input_name = "CertFileName-Field"  # default fallback
         for inp in soup.find_all("input"):
             name = inp.get("name", "")
             value = inp.get("value", "")
-            if name and inp.get("type", "").lower() != "file":
+            if not name:
+                continue
+            if inp.get("type", "").lower() == "file":
+                file_input_name = name  # capture the actual file input field name
+            else:
                 fields[name] = value
         for sel in soup.find_all("select"):
             name = sel.get("name", "")
@@ -588,16 +600,26 @@ class RibbonWebClient:
                 opt = sel.find("option", selected=True)
                 fields[name] = opt["value"] if opt else ""
 
-        # Ensure the key fields are set correctly for a file-based import
         fields.setdefault("type", "UXCertificate")
         fields.setdefault("certificateType", "ux")
-        fields.setdefault("cfg", "/views/system/uxServerCertificateImport.xml")
-        fields["CertFileOperation-Field"] = "2"   # 2 = file upload (1 = paste)
+        fields.setdefault("cfg", cfg_xml)
 
-        logger.debug(f"Certificate import form fields: {list(fields.keys())}")
+        if is_pfx:
+            fields["EncryptedPassword"] = pfx_password or ""
+        else:
+            fields["CertFileOperation"] = "2"   # 2 = file upload (1 = paste)
+
+        # Remove any scraped text field with the same name as the file input to avoid
+        # sending it as both a text part and a file part (which can confuse PHP's parser).
+        fields.pop(file_input_name, None)
+
+        logger.debug(
+            f"Certificate import form fields: {list(fields.keys())}, "
+            f"file_input_name={file_input_name!r}"
+        )
 
         # Step 2 — POST the certificate file to config_do.php
-        files = {"CertFileName-Field": (cert_filename, cert_bytes, "application/octet-stream")}
+        files = {file_input_name: (cert_filename, cert_bytes, "application/octet-stream")}
         resp = await self._client.post(
             f"{self.base_url}/cgi/phpUI/config_do.php",
             data=fields,
@@ -611,12 +633,11 @@ class RibbonWebClient:
             )
 
         text = resp.text
-        logger.info(f"Certificate upload response ({resp.status_code}): {text[:200]}")
+        logger.info(f"Certificate upload response ({resp.status_code}): {text[:500]}")
 
         # The device returns an error string starting with "Error" on failure
         if "error" in text.lower() and "success" not in text.lower():
             import re
-            # Try to extract a human-readable error
             m = re.search(r"Error[^<\n]*", text, re.IGNORECASE)
             if m:
                 raise RibbonUpgradeError(f"Certificate import failed: {m.group(0)}")
