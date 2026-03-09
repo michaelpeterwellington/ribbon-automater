@@ -406,8 +406,9 @@ class RibbonWebClient:
                     "Content-Type": stream.content_type,
                     "Content-Length": str(stream.length),
                 },
+                extensions={"timeout": httpx.Timeout(_UPLOAD_TIMEOUT).as_dict()},
             )
-            resp = await self._client.send(request, timeout=_UPLOAD_TIMEOUT)
+            resp = await self._client.send(request)
         else:
             with open(firmware_path, "rb") as fh:
                 files = {"Filename": (firmware_path.name, fh, "application/octet-stream")}
@@ -489,6 +490,138 @@ class RibbonWebClient:
             elapsed += _REBOOT_POLL_INTERVAL
 
         return False
+
+    # ── Certificate Management ──────────────────────────────────────────────
+
+    async def get_certificate_info(self) -> dict:
+        """
+        Fetch and parse the current platform (UX) server certificate details.
+
+        POSTs to serverCertDisplay.php (mirroring what the browser does when the
+        Server Certificates tab loads) and extracts all FormName/FormValue pairs.
+
+        Returns a dict with keys: subject, issuer, certificate (each a dict of field→value),
+        plus a flat 'raw' dict of all label→value pairs.
+        """
+        resp = await self._client.post(
+            f"{self.base_url}/cgi/system/serverCertDisplay.php",
+            params={
+                "cert": "platform",
+                "hasTitle": "no",
+                "navigationContext": "Settings_0",
+                "tabContainer": "Settings_ServerCertificates",
+                "tabId": "0",
+                "renderOnLoadUnload": "no",
+            },
+            data={"async": "false"},
+            timeout=30.0,
+        )
+        if resp.status_code not in (200,):
+            raise RibbonUpgradeError(
+                f"Certificate display returned HTTP {resp.status_code}"
+            )
+
+        soup = BeautifulSoup(resp.text, "lxml")
+        raw: dict[str, str] = {}
+        for row in soup.find_all("tr", class_="FormRow"):
+            name_td = row.find("td", class_="FormName")
+            value_td = row.find("td", class_="FormValue")
+            if name_td and value_td:
+                key = name_td.get_text(strip=True)
+                # Strip nested HTML tags (e.g. <div class="StatusNormalDetails"><b>OK</b></div>)
+                val = value_td.get_text(strip=True)
+                if key:
+                    raw[key] = val
+
+        # Group into logical sections based on the FieldGroup titles
+        sections: dict[str, dict] = {}
+        for group in soup.find_all("div", class_="FieldGroup"):
+            title_el = group.find("div", class_="FieldGroupTitle")
+            if not title_el:
+                continue
+            section_name = title_el.get_text(strip=True)
+            section_data: dict[str, str] = {}
+            for row in group.find_all("tr", class_="FormRow"):
+                name_td = row.find("td", class_="FormName")
+                value_td = row.find("td", class_="FormValue")
+                if name_td and value_td:
+                    key = name_td.get_text(strip=True)
+                    val = value_td.get_text(strip=True)
+                    if key:
+                        section_data[key] = val
+            if section_data:
+                sections[section_name] = section_data
+
+        logger.debug(f"Parsed certificate info: {list(raw.keys())}")
+        return {"sections": sections, "raw": raw}
+
+    async def upload_certificate(self, cert_bytes: bytes, cert_filename: str) -> str:
+        """
+        Upload a PEM certificate to replace the platform (UX) server certificate.
+
+        Flow (mirrors what the browser does when clicking Import > X.509 Signed Certificate):
+          1. GET  /cgi/phpUI/config.php?cfg=/views/system/uxServerCertificateImport.xml&type=UXCertificate
+                  — loads the import dialog form, extracts all hidden fields
+          2. POST /cgi/phpUI/config_do.php
+                  — multipart form submit with cert file + all hidden fields
+
+        Returns the response text from config_do.php (success or error message).
+        """
+        # Step 1 — Load the import form to get hidden fields
+        resp = await self._client.get(
+            f"{self.base_url}/cgi/phpUI/config.php",
+            params={
+                "cfg": "/views/system/uxServerCertificateImport.xml",
+                "type": "UXCertificate",
+            },
+        )
+        soup = BeautifulSoup(resp.text, "lxml")
+        fields: dict[str, str] = {}
+        for inp in soup.find_all("input"):
+            name = inp.get("name", "")
+            value = inp.get("value", "")
+            if name and inp.get("type", "").lower() != "file":
+                fields[name] = value
+        for sel in soup.find_all("select"):
+            name = sel.get("name", "")
+            if name:
+                opt = sel.find("option", selected=True)
+                fields[name] = opt["value"] if opt else ""
+
+        # Ensure the key fields are set correctly for a file-based import
+        fields.setdefault("type", "UXCertificate")
+        fields.setdefault("certificateType", "ux")
+        fields.setdefault("cfg", "/views/system/uxServerCertificateImport.xml")
+        fields["CertFileOperation-Field"] = "2"   # 2 = file upload (1 = paste)
+
+        logger.debug(f"Certificate import form fields: {list(fields.keys())}")
+
+        # Step 2 — POST the certificate file to config_do.php
+        files = {"CertFileName-Field": (cert_filename, cert_bytes, "application/octet-stream")}
+        resp = await self._client.post(
+            f"{self.base_url}/cgi/phpUI/config_do.php",
+            data=fields,
+            files=files,
+            timeout=60.0,
+        )
+
+        if resp.status_code not in (200, 302):
+            raise RibbonUpgradeError(
+                f"Certificate upload returned HTTP {resp.status_code}: {resp.text[:500]}"
+            )
+
+        text = resp.text
+        logger.info(f"Certificate upload response ({resp.status_code}): {text[:200]}")
+
+        # The device returns an error string starting with "Error" on failure
+        if "error" in text.lower() and "success" not in text.lower():
+            import re
+            # Try to extract a human-readable error
+            m = re.search(r"Error[^<\n]*", text, re.IGNORECASE)
+            if m:
+                raise RibbonUpgradeError(f"Certificate import failed: {m.group(0)}")
+
+        return text
 
     # ── Convenience ────────────────────────────────────────────────────────
 

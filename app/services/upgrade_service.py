@@ -217,16 +217,28 @@ async def _run_workflow(
             raise RibbonUpgradeError("Device did not come back online within timeout after reboot")
         await _append_log(db, job, "Device is back online")
 
-        # Step 7 — Verify version
+        # Step 7 — Verify version (retry a few times — web stack may not be fully ready yet)
         await _set_status(db, job, JobStatus.VERIFYING)
-        await _append_log(db, job, "Re-logging in to verify firmware version…")
-        await client.login()
-        new_version = await client.get_version()
+        await _append_log(db, job, "Waiting 15 s for web stack to fully initialise…")
+        await asyncio.sleep(15)
+        new_version = None
+        for attempt in range(1, 4):
+            try:
+                await _append_log(db, job, f"Re-logging in to verify firmware version (attempt {attempt}/3)…")
+                await client.login()
+                new_version = await client.get_version()
+                break
+            except Exception as e:
+                if attempt < 3:
+                    await _append_log(db, job, f"Login attempt {attempt} failed ({e}) — retrying in 20 s…")
+                    await asyncio.sleep(20)
+                else:
+                    await _append_log(db, job, f"Could not verify version after 3 attempts: {e}")
         if new_version:
             await _append_log(db, job, f"Firmware version now: {new_version}")
             device.current_version = new_version
-        else:
-            await _append_log(db, job, "Could not determine firmware version post-upgrade")
+        elif not new_version:
+            await _append_log(db, job, "Could not determine firmware version post-upgrade (upgrade still succeeded)")
 
         device.last_checked_at = datetime.now(timezone.utc)
 

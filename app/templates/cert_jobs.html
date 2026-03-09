@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Certificate Jobs{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+  <h1><i class="bi bi-shield-check me-2 text-primary"></i>Certificate Jobs</h1>
+  <div class="d-flex gap-2">
+    <select class="form-select form-select-sm" id="filter-status" style="width:160px">
+      <option value="">All statuses</option>
+      <option>pending</option><option>login</option><option>uploading</option>
+      <option>complete</option><option>failed</option><option>cancelled</option>
+    </select>
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadJobs()">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0" id="jobs-table">
+      <thead><tr>
+        <th>ID</th><th>Device</th><th>Customer</th><th>Certificate</th>
+        <th>Status</th><th>Scheduled</th><th>Started</th><th>Completed</th><th></th>
+      </tr></thead>
+      <tbody><tr><td colspan="9" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Log Modal -->
+<div class="modal fade" id="logModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Cert Job #<span id="log-job-id"></span> — <span id="log-device-name"></span></h5>
+        <span id="log-status-badge" class="ms-2"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="log-box" id="log-content">Loading…</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-outline-danger" id="cancel-job-btn">Cancel Job</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let pollInterval = null;
+let tableInterval = null;
+let activeJobId = null;
+const ACTIVE = ['pending','login','uploading'];
+
+document.getElementById('filter-status').addEventListener('change', loadJobs);
+
+async function loadJobs() {
+  const status = document.getElementById('filter-status').value;
+  const url = status ? `/api/cert-jobs?status=${status}` : '/api/cert-jobs';
+  const jobs = await api('GET', url);
+  const tbody = document.querySelector('#jobs-table tbody');
+  if (!jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No cert jobs found</td></tr>';
+    clearInterval(tableInterval);
+    tableInterval = setInterval(loadJobs, 15000);
+    return;
+  }
+
+  const hasActive = jobs.some(j => ACTIVE.includes(j.status));
+  clearInterval(tableInterval);
+  tableInterval = setInterval(loadJobs, hasActive ? 3000 : 15000);
+
+  tbody.innerHTML = jobs.map(j => {
+    const isActive = ACTIVE.includes(j.status);
+    return `
+    <tr class="${isActive ? 'table-active' : ''}" style="cursor:pointer" onclick="openLog(${j.id})">
+      <td class="text-muted">#${j.id}</td>
+      <td class="fw-semibold">${j.device_name||'—'}</td>
+      <td class="text-muted">${j.customer_name||'—'}</td>
+      <td><small>${j.certificate_filename||'—'}</small></td>
+      <td>${statusBadge(j.status)}</td>
+      <td><small>${fmtDate(j.scheduled_at)}</small></td>
+      <td><small>${fmtDate(j.started_at)}</small></td>
+      <td><small>${fmtDate(j.completed_at)}</small></td>
+      <td>
+        <button class="btn btn-xs btn-sm btn-outline-secondary py-0 px-2" onclick="event.stopPropagation();openLog(${j.id})">
+          <i class="bi bi-journal-text me-1"></i>Log
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function openLog(jobId) {
+  activeJobId = jobId;
+  const modal = new bootstrap.Modal(document.getElementById('logModal'));
+  modal.show();
+  await refreshLog(jobId);
+
+  clearInterval(pollInterval);
+  pollInterval = setInterval(async () => {
+    const job = await api('GET', `/api/cert-jobs/${activeJobId}`);
+    updateLogModal(job);
+    if (!ACTIVE.includes(job.status)) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+      loadJobs();
+    }
+  }, 3000);
+
+  document.getElementById('logModal').addEventListener('hidden.bs.modal', () => {
+    clearInterval(pollInterval);
+    pollInterval = null;
+    activeJobId = null;
+  }, { once: true });
+}
+
+async function refreshLog(jobId) {
+  const job = await api('GET', `/api/cert-jobs/${jobId}`);
+  updateLogModal(job);
+}
+
+function updateLogModal(job) {
+  document.getElementById('log-job-id').textContent = job.id;
+  document.getElementById('log-device-name').textContent = job.device_name || '—';
+  document.getElementById('log-status-badge').innerHTML = statusBadge(job.status);
+
+  const logBox = document.getElementById('log-content');
+  logBox.textContent = job.log && job.log.trim() ? job.log : (ACTIVE.includes(job.status) ? 'Starting…' : '(no log)');
+  logBox.scrollTop = logBox.scrollHeight;
+
+  const cancelBtn = document.getElementById('cancel-job-btn');
+  cancelBtn.style.display = job.status === 'pending' ? '' : 'none';
+}
+
+document.getElementById('cancel-job-btn').addEventListener('click', async () => {
+  if (!activeJobId) return;
+  if (!confirm('Cancel this cert job?')) return;
+  await api('POST', `/api/cert-jobs/${activeJobId}/cancel`);
+  bootstrap.Modal.getInstance(document.getElementById('logModal')).hide();
+  loadJobs();
+});
+
+loadJobs();
+</script>
+{% endblock %}

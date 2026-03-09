@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.api import audit, customers, devices, firmware, settings_api, upgrades
+from app.api import audit, cert_jobs, certificates, customers, devices, firmware, settings_api, upgrades
 from app.database import init_db
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -39,7 +39,9 @@ if STATIC_DIR.exists():
 app.include_router(customers.router)
 app.include_router(devices.router)
 app.include_router(firmware.router)
+app.include_router(certificates.router)
 app.include_router(upgrades.router)
+app.include_router(cert_jobs.router)
 app.include_router(settings_api.router)
 app.include_router(audit.router)
 
@@ -86,6 +88,16 @@ async def upgrades_page(request: Request):
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     return templates.TemplateResponse("settings.html", {"request": request})
+
+
+@app.get("/certificates", response_class=HTMLResponse)
+async def certificates_page(request: Request):
+    return templates.TemplateResponse("certificates.html", {"request": request})
+
+
+@app.get("/cert-jobs", response_class=HTMLResponse)
+async def cert_jobs_page(request: Request):
+    return templates.TemplateResponse("cert_jobs.html", {"request": request})
 
 
 @app.get("/audit", response_class=HTMLResponse)

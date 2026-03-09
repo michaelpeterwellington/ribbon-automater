@@ -4,6 +4,7 @@ import io
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -260,12 +261,82 @@ async def check_version(device_id: int, db: AsyncSession = Depends(get_db)):
             version = await client.get_version()
             device.current_version = version
             device.last_checked_at = datetime.now(timezone.utc)
-            # Detect hypervisor for SWe Edge (virtualised) devices
+            cert_common_name: str | None = None
+            cert_expiry: str | None = None
+            # Detect hypervisor + fetch cert info for SWe Edge devices (same session)
             if device.device_type == DeviceType.SWE_EDGE:
                 hypervisor = await client.get_hypervisor()
                 if hypervisor:
                     device.hypervisor_type = hypervisor
+                try:
+                    cert_info = await client.get_certificate_info()
+                    # Use sections to get Subject CN specifically (raw has duplicates from Issuer)
+                    sections = cert_info.get("sections", {})
+                    cert_common_name = (
+                        sections.get("Subject", {}).get("Common Name")
+                        or cert_info.get("raw", {}).get("Common Name")
+                    )
+                    cert_expiry = (
+                        sections.get("Certificate", {}).get("Not Valid After")
+                        or cert_info.get("raw", {}).get("Not Valid After")
+                    )
+                    device.cert_common_name = cert_common_name
+                    device.cert_expiry = cert_expiry
+                except Exception:
+                    pass  # cert info is best-effort
             await db.commit()
-            return {"version": version, "updated": True, "hypervisor_type": device.hypervisor_type}
+            return {
+                "version": version,
+                "updated": True,
+                "hypervisor_type": device.hypervisor_type,
+                "cert_common_name": cert_common_name,
+                "cert_expiry": cert_expiry,
+            }
         except Exception as e:
             return {"version": None, "updated": False, "error": str(e)}
+
+
+@router.get("/{device_id}/certificate-info")
+async def get_certificate_info(device_id: int, db: AsyncSession = Depends(get_db)):
+    """Fetch the current platform SSL certificate details from a SWe Edge device."""
+    device = await _get_or_404(db, device_id)
+    if device.device_type != DeviceType.SWE_EDGE:
+        raise HTTPException(status_code=400, detail="Certificate info is only available for SWe Edge devices")
+
+    password = decrypt_value(device.password_encrypted)
+    async with RibbonWebClient(device.ip_address, device.username, password) as client:
+        try:
+            await client.login()
+            info = await client.get_certificate_info()
+            return info
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.post("/{device_id}/update-certificate")
+async def update_certificate(
+    device_id: int,
+    cert_file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a new PEM SSL certificate to a SWe Edge device."""
+    device = await _get_or_404(db, device_id)
+    if device.device_type != DeviceType.SWE_EDGE:
+        raise HTTPException(status_code=400, detail="Certificate update is only supported for SWe Edge devices")
+
+    cert_bytes = await cert_file.read()
+    password = decrypt_value(device.password_encrypted)
+
+    async with RibbonWebClient(device.ip_address, device.username, password) as client:
+        try:
+            await client.login()
+            result = await client.upload_certificate(cert_bytes, cert_file.filename or "certificate.pem")
+            await audit_log(
+                db, "device.certificate_updated",
+                f"SSL certificate updated on device '{device.name}' ({device.ip_address})",
+                "device", device_id,
+                {"name": device.name, "ip": device.ip_address, "filename": cert_file.filename},
+            )
+            return {"success": True, "message": "Certificate uploaded successfully", "detail": result[:300]}
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"success": False, "error": str(e)})

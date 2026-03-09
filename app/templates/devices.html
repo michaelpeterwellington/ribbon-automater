@@ -5,6 +5,9 @@
   <h1><i class="bi bi-hdd-network me-2 text-primary"></i>All Devices</h1>
   <div class="d-flex gap-2 align-items-center">
     <input class="form-control form-control-sm" id="search" placeholder="Filter…" style="width:200px">
+    <button class="btn btn-sm btn-outline-secondary d-none" id="bulk-schedule-btn" onclick="openBulkSchedule()">
+      <i class="bi bi-calendar-plus me-1"></i>Bulk Schedule (<span id="bulk-count">0</span>)
+    </button>
     <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#bulkImportModal">
       <i class="bi bi-upload me-1"></i>Bulk Import
     </button>
@@ -15,10 +18,11 @@
   <div class="card-body p-0">
     <table class="table table-hover mb-0" id="devices-table">
       <thead><tr>
+        <th style="width:36px"><input type="checkbox" id="select-all" title="Select all"></th>
         <th>Device</th><th>Customer</th><th>IP</th><th>Type</th>
         <th>Version</th><th>Platform</th><th>Last Checked</th><th></th>
       </tr></thead>
-      <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+      <tbody><tr><td colspan="9" class="text-center text-muted py-4">Loading…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -59,6 +63,107 @@
         </button>
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button class="btn btn-primary" id="save-dev-btn">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Certificate Update Modal -->
+<div class="modal fade" id="certModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-shield-lock me-2"></i>SSL Certificate — <span id="cert-device-name"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="cert-device-id">
+        <div id="cert-current" class="mb-3">
+          <div class="d-flex align-items-center gap-2 text-muted small">
+            <span class="spinner-border spinner-border-sm"></span> Loading current certificate…
+          </div>
+        </div>
+        <hr class="my-3">
+        <p class="fw-semibold mb-2">Upload Replacement Certificate</p>
+        <p class="text-muted small mb-2">Upload a PEM-format X.509 certificate to replace the current platform server certificate.</p>
+        <div class="mb-3">
+          <label class="form-label">Certificate File (.pem) *</label>
+          <input class="form-control" type="file" id="cert-file" accept=".pem,.crt,.cer">
+        </div>
+        <div id="cert-result" class="alert d-none"></div>
+        <hr class="my-3">
+        <p class="fw-semibold mb-2">Schedule from Certificate Library</p>
+        <p class="text-muted small mb-2">Pick a stored certificate and schedule a deployment job.</p>
+        <div class="row g-3">
+          <div class="col-md-7">
+            <label class="form-label">Certificate *</label>
+            <select class="form-select" id="cert-lib-select"></select>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Schedule (blank = immediate)</label>
+            <input class="form-control" type="datetime-local" id="cert-lib-when">
+          </div>
+        </div>
+        <div id="cert-sched-result" class="alert d-none mt-3"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-outline-primary" id="cert-sched-btn">
+          <i class="bi bi-calendar-plus me-1"></i>Schedule Job
+        </button>
+        <button class="btn btn-primary" id="cert-upload-btn">
+          <span id="cert-btn-label"><i class="bi bi-upload me-1"></i>Upload Now</span>
+          <span id="cert-btn-spinner" class="spinner-border spinner-border-sm d-none"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Schedule Modal -->
+<div class="modal fade" id="bulkScheduleModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>Bulk Schedule — <span id="bulk-dev-count"></span> device(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="bulk-device-list" class="mb-3 small text-muted"></div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Schedule time (blank = immediate for all)</label>
+          <input class="form-control" type="datetime-local" id="bulk-when">
+        </div>
+        <div class="card mb-3">
+          <div class="card-header d-flex align-items-center gap-2">
+            <input type="checkbox" id="bulk-fw-enabled" class="form-check-input mt-0">
+            <label class="form-check-label mb-0" for="bulk-fw-enabled"><strong>Firmware Upgrade</strong></label>
+          </div>
+          <div class="card-body" id="bulk-fw-body">
+            <div id="bulk-fw-compat-warn" class="alert alert-warning py-2 small d-none"></div>
+            <select class="form-select" id="bulk-fw-select" disabled>
+              <option value="">— Select firmware —</option>
+            </select>
+          </div>
+        </div>
+        <div class="card mb-3">
+          <div class="card-header d-flex align-items-center gap-2">
+            <input type="checkbox" id="bulk-cert-enabled" class="form-check-input mt-0">
+            <label class="form-check-label mb-0" for="bulk-cert-enabled"><strong>Certificate Update</strong> <small class="text-muted">(SWe Edge only)</small></label>
+          </div>
+          <div class="card-body" id="bulk-cert-body">
+            <select class="form-select" id="bulk-cert-select" disabled>
+              <option value="">— Select certificate —</option>
+            </select>
+          </div>
+        </div>
+        <div id="bulk-result"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-warning" id="bulk-run-btn">
+          <i class="bi bi-play-fill me-1"></i>Create Jobs
+        </button>
       </div>
     </div>
   </div>
@@ -124,14 +229,20 @@
 <script>
 let allDevices = [];
 let allFirmware = [];
+let allCerts = [];
+let selectedDeviceIds = new Set();
 
 async function loadDevices() {
-  const [devices, firmware] = await Promise.all([
+  const [devices, firmware, certs] = await Promise.all([
     api('GET', '/api/devices'),
     api('GET', '/api/firmware'),
+    api('GET', '/api/certificates'),
   ]);
   allDevices = devices;
   allFirmware = firmware;
+  allCerts = certs;
+  selectedDeviceIds.clear();
+  updateBulkBtn();
   renderTable(devices);
 }
 
@@ -158,19 +269,26 @@ const hypervisorBadge = (d) => {
   return `<span class="badge ${cls}">${label}</span>`;
 };
 
+function updateBulkBtn() {
+  const n = selectedDeviceIds.size;
+  document.getElementById('bulk-count').textContent = n;
+  document.getElementById('bulk-schedule-btn').classList.toggle('d-none', n === 0);
+}
+
 function renderTable(devices) {
   const tbody = document.querySelector('#devices-table tbody');
   if (!devices.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No devices found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No devices found</td></tr>';
     return;
   }
   tbody.innerHTML = devices.map(d => `
     <tr>
+      <td><input type="checkbox" class="dev-check form-check-input" data-id="${d.id}" ${selectedDeviceIds.has(d.id) ? 'checked' : ''} onclick="toggleSelect(${d.id},this)"></td>
       <td class="fw-semibold">${d.name}</td>
       <td><a href="/customers/${d.customer_id}" class="text-decoration-none text-muted">${d.customer_name||'—'}</a></td>
       <td><code>${d.ip_address}</code></td>
       <td><span class="badge bg-secondary">${d.device_type}</span></td>
-      <td id="ver-${d.id}">${d.current_version ? `<code>${d.current_version}</code>` : '<span class="text-warning">Unknown</span>'}</td>
+      <td id="ver-${d.id}">${d.current_version ? `<code>${d.current_version}</code>` : '<span class="text-warning">Unknown</span>'}${d.device_type === 'SWE_EDGE' ? `<div id="cert-info-${d.id}" class="text-muted" style="font-size:0.75rem;margin-top:2px">${certInfoHtml(d.cert_common_name, d.cert_expiry)}</div>` : ''}</td>
       <td id="hyp-${d.id}">${hypervisorBadge(d)}</td>
       <td><small>${d.last_checked_at ? new Date(d.last_checked_at).toLocaleString() : '—'}</small></td>
       <td class="text-end" style="white-space:nowrap">
@@ -183,9 +301,30 @@ function renderTable(devices) {
         <button class="btn btn-sm btn-outline-warning" onclick="openUpgrade(${d.id},'${d.name}')" title="Upgrade">
           <i class="bi bi-arrow-up-circle"></i>
         </button>
+        ${d.device_type === 'SWE_EDGE' ? `<button class="btn btn-sm btn-outline-success ms-1" onclick="openCertModal(${d.id},'${d.name}')" title="Update SSL Certificate"><i class="bi bi-shield-lock"></i></button>` : ''}
       </td>
     </tr>`).join('');
 }
+
+function toggleSelect(id, cb) {
+  if (cb.checked) selectedDeviceIds.add(id);
+  else selectedDeviceIds.delete(id);
+  updateBulkBtn();
+  const all = document.getElementById('select-all');
+  const checks = document.querySelectorAll('.dev-check');
+  all.indeterminate = selectedDeviceIds.size > 0 && selectedDeviceIds.size < checks.length;
+  all.checked = selectedDeviceIds.size === checks.length && checks.length > 0;
+}
+
+document.getElementById('select-all').addEventListener('change', function() {
+  document.querySelectorAll('.dev-check').forEach(cb => {
+    const id = +cb.dataset.id;
+    cb.checked = this.checked;
+    if (this.checked) selectedDeviceIds.add(id);
+    else selectedDeviceIds.delete(id);
+  });
+  updateBulkBtn();
+});
 
 document.getElementById('search').addEventListener('input', e => {
   const q = e.target.value.toLowerCase();
@@ -196,17 +335,31 @@ document.getElementById('search').addEventListener('input', e => {
   ));
 });
 
+function certInfoHtml(cn, expiry) {
+  if (!cn && !expiry) return '—';
+  let exp = '';
+  if (expiry) {
+    const d = new Date(expiry); const now = new Date();
+    const days = Math.round((d - now) / 86400000);
+    const cls = days < 0 ? 'text-danger' : days < 30 ? 'text-warning' : 'text-muted';
+    exp = ` <span class="${cls}">(${days < 0 ? 'expired' : days + 'd'})</span>`;
+  }
+  return `${cn || ''}${exp}`;
+}
+
 async function checkVersion(deviceId) {
   const cell = document.getElementById(`ver-${deviceId}`);
   const hypCell = document.getElementById(`hyp-${deviceId}`);
+  const d = allDevices.find(x => x.id === deviceId) || {};
   cell.innerHTML = '<span class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Checking…</span>';
   const r = await fetch(`/api/devices/${deviceId}/check-version`, { method: 'POST' });
   const data = await r.json();
   if (data.version) {
-    cell.innerHTML = `<code>${data.version}</code>`;
-    // Update hypervisor badge if returned
+    const certDiv = d.device_type === 'SWE_EDGE'
+      ? `<div id="cert-info-${deviceId}" class="text-muted" style="font-size:0.75rem;margin-top:2px">${certInfoHtml(data.cert_common_name, data.cert_expiry)}</div>`
+      : '';
+    cell.innerHTML = `<code>${data.version}</code>${certDiv}`;
     if (hypCell && data.hypervisor_type) {
-      const d = allDevices.find(x => x.id === deviceId) || { device_type: 'SWE_EDGE' };
       d.hypervisor_type = data.hypervisor_type;
       hypCell.innerHTML = hypervisorBadge(d);
     }
@@ -303,6 +456,197 @@ document.getElementById('upg-run').addEventListener('click', async () => {
   });
   bootstrap.Modal.getInstance(document.getElementById('upgradeModal')).hide();
   alert('Upgrade job created!');
+});
+
+function renderCertInfo(info) {
+  if (info.error) {
+    return `<div class="alert alert-warning py-2 small">${info.error}</div>`;
+  }
+  const sections = info.sections || {};
+  if (!Object.keys(sections).length && info.raw) {
+    const rows = Object.entries(info.raw).map(([k,v]) =>
+      `<tr><td class="text-muted" style="width:40%">${k}</td><td>${v||'—'}</td></tr>`).join('');
+    return `<table class="table table-sm table-borderless mb-0 small">${rows}</table>`;
+  }
+  return Object.entries(sections).map(([section, fields]) => {
+    const rows = Object.entries(fields).map(([k,v]) => {
+      let badge = v;
+      if (k === 'Verify Status') badge = v.includes('OK') ? `<span class="badge bg-success">OK</span>` : `<span class="badge bg-danger">${v}</span>`;
+      if ((k === 'Not Valid After' || k === 'Not Valid Before') && v) {
+        const d = new Date(v); const now = new Date();
+        if (k === 'Not Valid After' && d < now) badge = `<span class="text-danger fw-semibold">${v} (EXPIRED)</span>`;
+        else if (k === 'Not Valid After') {
+          const days = Math.round((d - now) / 86400000);
+          badge = `${v} <span class="badge ${days < 30 ? 'bg-warning text-dark' : 'bg-success'}">${days}d left</span>`;
+        }
+      }
+      return `<tr><td class="text-muted" style="width:38%;white-space:nowrap">${k}</td><td>${badge||'—'}</td></tr>`;
+    }).join('');
+    return `<p class="fw-semibold small mb-1 mt-2">${section}</p><table class="table table-sm table-borderless mb-0 small">${rows}</table>`;
+  }).join('');
+}
+
+async function openCertModal(deviceId, deviceName) {
+  document.getElementById('cert-device-id').value = deviceId;
+  document.getElementById('cert-device-name').textContent = deviceName;
+  document.getElementById('cert-file').value = '';
+  const result = document.getElementById('cert-result');
+  result.className = 'alert d-none';
+  result.textContent = '';
+  document.getElementById('cert-sched-result').className = 'alert d-none';
+
+  // Populate cert library dropdown
+  const libSel = document.getElementById('cert-lib-select');
+  if (allCerts.length) {
+    libSel.innerHTML = allCerts.map(c =>
+      `<option value="${c.id}">${c.filename}${c.subject_cn ? ' — ' + c.subject_cn : ''}</option>`
+    ).join('');
+  } else {
+    libSel.innerHTML = '<option value="">— No certificates in library —</option>';
+  }
+
+  const certCurrent = document.getElementById('cert-current');
+  certCurrent.innerHTML = '<div class="d-flex align-items-center gap-2 text-muted small"><span class="spinner-border spinner-border-sm"></span> Loading current certificate…</div>';
+  new bootstrap.Modal(document.getElementById('certModal')).show();
+  try {
+    const info = await api('GET', `/api/devices/${deviceId}/certificate-info`);
+    certCurrent.innerHTML = renderCertInfo(info);
+  } catch(e) {
+    certCurrent.innerHTML = `<div class="alert alert-warning py-2 small">Could not load certificate info: ${e.message}</div>`;
+  }
+}
+
+document.getElementById('cert-upload-btn').addEventListener('click', async () => {
+  const deviceId = document.getElementById('cert-device-id').value;
+  const fileInput = document.getElementById('cert-file');
+  if (!fileInput.files.length) { alert('Please select a certificate file.'); return; }
+
+  const btn = document.getElementById('cert-upload-btn');
+  const label = document.getElementById('cert-btn-label');
+  const spinner = document.getElementById('cert-btn-spinner');
+  const result = document.getElementById('cert-result');
+  btn.disabled = true;
+  label.classList.add('d-none');
+  spinner.classList.remove('d-none');
+  result.className = 'alert d-none';
+
+  try {
+    const form = new FormData();
+    form.append('cert_file', fileInput.files[0]);
+    const r = await fetch(`/api/devices/${deviceId}/update-certificate`, { method: 'POST', body: form });
+    const data = await r.json();
+    if (data.success) {
+      result.className = 'alert alert-success';
+      result.textContent = 'Certificate uploaded successfully.';
+    } else {
+      result.className = 'alert alert-danger';
+      result.textContent = data.error || 'Upload failed.';
+    }
+  } catch(e) {
+    result.className = 'alert alert-danger';
+    result.textContent = 'Request failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    label.classList.remove('d-none');
+    spinner.classList.add('d-none');
+  }
+});
+
+document.getElementById('cert-sched-btn').addEventListener('click', async () => {
+  const deviceId = document.getElementById('cert-device-id').value;
+  const certId = document.getElementById('cert-lib-select').value;
+  if (!certId) { alert('Please select a certificate from the library.'); return; }
+  const when = document.getElementById('cert-lib-when').value;
+  const schedResult = document.getElementById('cert-sched-result');
+  try {
+    await api('POST', '/api/cert-jobs', {
+      device_id: +deviceId, certificate_id: +certId,
+      scheduled_at: when ? new Date(when).toISOString() : null,
+    });
+    schedResult.className = 'alert alert-success mt-3';
+    schedResult.textContent = when ? 'Certificate job scheduled!' : 'Certificate job queued — running now.';
+  } catch(e) {
+    schedResult.className = 'alert alert-danger mt-3';
+    schedResult.textContent = 'Error: ' + e.message;
+  }
+});
+
+function openBulkSchedule() {
+  const devices = allDevices.filter(d => selectedDeviceIds.has(d.id));
+  document.getElementById('bulk-dev-count').textContent = devices.length;
+  document.getElementById('bulk-device-list').textContent =
+    devices.map(d => d.name).join(', ');
+  document.getElementById('bulk-when').value = '';
+  document.getElementById('bulk-result').innerHTML = '';
+
+  // Firmware select
+  const fwSel = document.getElementById('bulk-fw-select');
+  fwSel.innerHTML = '<option value="">— Select firmware —</option>' +
+    allFirmware.map(f => `<option value="${f.id}">${f.filename} (v${f.version})</option>`).join('');
+  document.getElementById('bulk-fw-enabled').checked = false;
+  fwSel.disabled = true;
+
+  // Cert select (only if any SWE_EDGE in selection)
+  const hasSwe = devices.some(d => d.device_type === 'SWE_EDGE');
+  const certSel = document.getElementById('bulk-cert-select');
+  certSel.innerHTML = '<option value="">— Select certificate —</option>' +
+    allCerts.map(c => `<option value="${c.id}">${c.filename}${c.subject_cn ? ' — ' + c.subject_cn : ''}</option>`).join('');
+  document.getElementById('bulk-cert-enabled').checked = false;
+  certSel.disabled = true;
+  document.getElementById('bulk-cert-body').style.opacity = hasSwe ? '' : '0.4';
+
+  new bootstrap.Modal(document.getElementById('bulkScheduleModal')).show();
+}
+
+document.getElementById('bulk-fw-enabled').addEventListener('change', function() {
+  document.getElementById('bulk-fw-select').disabled = !this.checked;
+});
+document.getElementById('bulk-cert-enabled').addEventListener('change', function() {
+  document.getElementById('bulk-cert-select').disabled = !this.checked;
+});
+
+document.getElementById('bulk-run-btn').addEventListener('click', async () => {
+  const doFw = document.getElementById('bulk-fw-enabled').checked;
+  const doCert = document.getElementById('bulk-cert-enabled').checked;
+  if (!doFw && !doCert) { alert('Select at least one action (firmware or certificate).'); return; }
+
+  const fwId = doFw ? +document.getElementById('bulk-fw-select').value : null;
+  const certId = doCert ? +document.getElementById('bulk-cert-select').value : null;
+  if (doFw && !fwId) { alert('Select a firmware.'); return; }
+  if (doCert && !certId) { alert('Select a certificate.'); return; }
+
+  const when = document.getElementById('bulk-when').value;
+  const scheduledAt = when ? new Date(when).toISOString() : null;
+  const devices = allDevices.filter(d => selectedDeviceIds.has(d.id));
+
+  const btn = document.getElementById('bulk-run-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating…';
+
+  const errors = [];
+  let created = 0;
+  for (const d of devices) {
+    if (doFw) {
+      try {
+        await api('POST', '/api/upgrades', { device_id: d.id, firmware_id: fwId, scheduled_at: scheduledAt });
+        created++;
+      } catch(e) { errors.push(`${d.name} (fw): ${e.message}`); }
+    }
+    if (doCert && d.device_type === 'SWE_EDGE') {
+      try {
+        await api('POST', '/api/cert-jobs', { device_id: d.id, certificate_id: certId, scheduled_at: scheduledAt });
+        created++;
+      } catch(e) { errors.push(`${d.name} (cert): ${e.message}`); }
+    }
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Create Jobs';
+
+  let html = '';
+  if (created) html += `<div class="alert alert-success py-2">${created} job(s) created successfully.</div>`;
+  if (errors.length) html += `<div class="alert alert-danger py-2"><strong>Errors:</strong><ul class="mb-0 mt-1">${errors.map(e => `<li>${e}</li>`).join('')}</ul></div>`;
+  document.getElementById('bulk-result').innerHTML = html;
 });
 
 loadDevices();

@@ -80,8 +80,18 @@
       </a>
     </li>
     <li class="nav-item">
+      <a class="nav-link {% if request.url.path == '/certificates' %}active{% endif %}" href="/certificates">
+        <i class="bi bi-patch-check"></i> Cert Library
+      </a>
+    </li>
+    <li class="nav-item">
       <a class="nav-link {% if request.url.path == '/upgrades' %}active{% endif %}" href="/upgrades">
         <i class="bi bi-arrow-up-circle"></i> Upgrade Jobs
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if request.url.path == '/cert-jobs' %}active{% endif %}" href="/cert-jobs">
+        <i class="bi bi-shield-check"></i> Cert Jobs
       </a>
     </li>
     <li class="nav-item">

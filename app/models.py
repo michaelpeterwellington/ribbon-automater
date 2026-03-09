@@ -67,11 +67,16 @@ class Device(Base):
     current_version: Mapped[str | None] = mapped_column(String(100))
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
     hypervisor_type: Mapped[str | None] = mapped_column(String(50))  # KVM / HYPERV / VMWARE (SWe Edge only)
+    cert_common_name: Mapped[str | None] = mapped_column(String(255))
+    cert_expiry: Mapped[str | None] = mapped_column(String(100))
     notes: Mapped[str | None] = mapped_column(Text)
 
     customer: Mapped["Customer"] = relationship("Customer", back_populates="devices")
     upgrade_jobs: Mapped[list["UpgradeJob"]] = relationship(
         "UpgradeJob", back_populates="device", cascade="all, delete-orphan"
+    )
+    cert_jobs: Mapped[list["CertJob"]] = relationship(
+        "CertJob", back_populates="device", cascade="all, delete-orphan"
     )
 
 
@@ -121,6 +126,50 @@ class UpgradeJob(Base):
     device: Mapped["Device"] = relationship("Device", back_populates="upgrade_jobs")
     firmware: Mapped["FirmwareFile"] = relationship(
         "FirmwareFile", back_populates="upgrade_jobs"
+    )
+
+
+class CertificateFile(Base):
+    __tablename__ = "certificate_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject_cn: Mapped[str | None] = mapped_column(String(255))
+    not_valid_after: Mapped[str | None] = mapped_column(String(100))
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    cert_jobs: Mapped[list["CertJob"]] = relationship(
+        "CertJob", back_populates="certificate"
+    )
+
+
+class CertJob(Base):
+    __tablename__ = "cert_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False
+    )
+    certificate_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("certificate_files.id"), nullable=False
+    )
+    status: Mapped[JobStatus] = mapped_column(
+        Enum(JobStatus), nullable=False, default=JobStatus.PENDING
+    )
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    log: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    triggered_by: Mapped[str | None] = mapped_column(String(255))
+    apscheduler_job_id: Mapped[str | None] = mapped_column(String(255))
+
+    device: Mapped["Device"] = relationship("Device", back_populates="cert_jobs")
+    certificate: Mapped["CertificateFile"] = relationship(
+        "CertificateFile", back_populates="cert_jobs"
     )
 
 

@@ -63,6 +63,8 @@ class DeviceOut(BaseModel):
     current_version: str | None
     last_checked_at: datetime | None
     hypervisor_type: str | None = None  # KVM / HYPERV / VMWARE (SWe Edge only)
+    cert_common_name: str | None = None
+    cert_expiry: str | None = None
     notes: str | None
 
     model_config = {"from_attributes": True}
@@ -109,6 +111,47 @@ class UpgradeJobOut(BaseModel):
     triggered_by: str | None
     upload_bytes_sent: int | None = None
     has_backup: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+# ── Certificate Library ────────────────────────────────────────────────────
+
+class CertificateOut(BaseModel):
+    id: int
+    filename: str
+    subject_cn: str | None
+    not_valid_after: str | None
+    file_size: int
+    sha256: str
+    uploaded_at: datetime
+    notes: str | None
+
+    model_config = {"from_attributes": True}
+
+
+# ── Certificate Jobs ────────────────────────────────────────────────────────
+
+class CertJobCreate(BaseModel):
+    device_id: int
+    certificate_id: int
+    scheduled_at: datetime | None = None
+    triggered_by: str | None = "web"
+
+
+class CertJobOut(BaseModel):
+    id: int
+    device_id: int
+    device_name: str | None = None
+    customer_name: str | None = None
+    certificate_id: int
+    certificate_filename: str | None = None
+    status: JobStatus
+    scheduled_at: datetime | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    log: str
+    triggered_by: str | None
 
     model_config = {"from_attributes": True}
 

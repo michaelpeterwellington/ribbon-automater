@@ -68,3 +68,25 @@ def cancel_scheduled_upgrade(aps_job_id: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def schedule_cert_job(job_id: int, run_at: datetime) -> str:
+    """Schedule a cert job to run at a specific datetime. Returns the APScheduler job ID."""
+    from app.services.cert_job_service import run_cert_job
+
+    scheduler = get_scheduler()
+    aps_job = scheduler.add_job(
+        run_cert_job,
+        trigger=DateTrigger(run_date=run_at),
+        args=[job_id],
+        id=f"cert_{job_id}",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    logger.info(f"Scheduled cert job {job_id} for {run_at}")
+    return aps_job.id
+
+
+def cancel_scheduled_cert_job(aps_job_id: str) -> bool:
+    """Remove a scheduled cert job. Returns True if removed."""
+    return cancel_scheduled_upgrade(aps_job_id)
