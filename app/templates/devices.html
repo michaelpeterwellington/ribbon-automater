@@ -84,15 +84,7 @@
           </div>
         </div>
         <hr class="my-3">
-        <p class="fw-semibold mb-2">Upload Replacement Certificate</p>
-        <p class="text-muted small mb-2">Upload a PEM-format X.509 certificate to replace the current platform server certificate.</p>
-        <div class="mb-3">
-          <label class="form-label">Certificate File (.pem) *</label>
-          <input class="form-control" type="file" id="cert-file" accept=".pem,.crt,.cer">
-        </div>
-        <div id="cert-result" class="alert d-none"></div>
-        <hr class="my-3">
-        <p class="fw-semibold mb-2">Schedule from Certificate Library</p>
+        <p class="fw-semibold mb-2">Schedule Certificate from Library</p>
         <p class="text-muted small mb-2">Pick a stored certificate and schedule a deployment job.</p>
         <div class="row g-3">
           <div class="col-md-7">
@@ -108,12 +100,8 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-outline-primary" id="cert-sched-btn">
+        <button class="btn btn-primary" id="cert-sched-btn">
           <i class="bi bi-calendar-plus me-1"></i>Schedule Job
-        </button>
-        <button class="btn btn-primary" id="cert-upload-btn">
-          <span id="cert-btn-label"><i class="bi bi-upload me-1"></i>Upload Now</span>
-          <span id="cert-btn-spinner" class="spinner-border spinner-border-sm d-none"></span>
         </button>
       </div>
     </div>
@@ -489,10 +477,6 @@ function renderCertInfo(info) {
 async function openCertModal(deviceId, deviceName) {
   document.getElementById('cert-device-id').value = deviceId;
   document.getElementById('cert-device-name').textContent = deviceName;
-  document.getElementById('cert-file').value = '';
-  const result = document.getElementById('cert-result');
-  result.className = 'alert d-none';
-  result.textContent = '';
   document.getElementById('cert-sched-result').className = 'alert d-none';
 
   // Populate cert library dropdown
@@ -515,42 +499,6 @@ async function openCertModal(deviceId, deviceName) {
     certCurrent.innerHTML = `<div class="alert alert-warning py-2 small">Could not load certificate info: ${e.message}</div>`;
   }
 }
-
-document.getElementById('cert-upload-btn').addEventListener('click', async () => {
-  const deviceId = document.getElementById('cert-device-id').value;
-  const fileInput = document.getElementById('cert-file');
-  if (!fileInput.files.length) { alert('Please select a certificate file.'); return; }
-
-  const btn = document.getElementById('cert-upload-btn');
-  const label = document.getElementById('cert-btn-label');
-  const spinner = document.getElementById('cert-btn-spinner');
-  const result = document.getElementById('cert-result');
-  btn.disabled = true;
-  label.classList.add('d-none');
-  spinner.classList.remove('d-none');
-  result.className = 'alert d-none';
-
-  try {
-    const form = new FormData();
-    form.append('cert_file', fileInput.files[0]);
-    const r = await fetch(`/api/devices/${deviceId}/update-certificate`, { method: 'POST', body: form });
-    const data = await r.json();
-    if (data.success) {
-      result.className = 'alert alert-success';
-      result.textContent = 'Certificate uploaded successfully.';
-    } else {
-      result.className = 'alert alert-danger';
-      result.textContent = data.error || 'Upload failed.';
-    }
-  } catch(e) {
-    result.className = 'alert alert-danger';
-    result.textContent = 'Request failed: ' + e.message;
-  } finally {
-    btn.disabled = false;
-    label.classList.remove('d-none');
-    spinner.classList.add('d-none');
-  }
-});
 
 document.getElementById('cert-sched-btn').addEventListener('click', async () => {
   const deviceId = document.getElementById('cert-device-id').value;

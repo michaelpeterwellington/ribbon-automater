@@ -32,6 +32,7 @@ async def init_db() -> None:
             "ALTER TABLE devices ADD COLUMN hypervisor_type TEXT",
             "ALTER TABLE devices ADD COLUMN cert_common_name TEXT",
             "ALTER TABLE devices ADD COLUMN cert_expiry TEXT",
+            "ALTER TABLE certificate_files ADD COLUMN pfx_password_encrypted TEXT",
         ]:
             try:
                 await conn.execute(text(sql))

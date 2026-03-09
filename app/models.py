@@ -136,6 +136,7 @@ class CertificateFile(Base):
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     subject_cn: Mapped[str | None] = mapped_column(String(255))
     not_valid_after: Mapped[str | None] = mapped_column(String(100))
+    pfx_password_encrypted: Mapped[str | None] = mapped_column(Text)  # None = PEM; set = PFX
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)

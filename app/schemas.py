@@ -122,12 +122,27 @@ class CertificateOut(BaseModel):
     filename: str
     subject_cn: str | None
     not_valid_after: str | None
+    has_password: bool = False  # True for PFX certs that have a stored password
     file_size: int
     sha256: str
     uploaded_at: datetime
     notes: str | None
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_orm_cert(cls, cert: "CertificateFile") -> "CertificateOut":  # type: ignore[name-defined]
+        return cls(
+            id=cert.id,
+            filename=cert.filename,
+            subject_cn=cert.subject_cn,
+            not_valid_after=cert.not_valid_after,
+            has_password=bool(cert.pfx_password_encrypted),
+            file_size=cert.file_size,
+            sha256=cert.sha256,
+            uploaded_at=cert.uploaded_at,
+            notes=cert.notes,
+        )
 
 
 # ── Certificate Jobs ────────────────────────────────────────────────────────

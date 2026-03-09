@@ -13,10 +13,14 @@
          style="border-color:#3d4147!important; cursor:pointer"
          ondragover="event.preventDefault()" ondrop="handleDrop(event)">
       <i class="bi bi-file-earmark-lock fs-2"></i>
-      <div class="mt-1">Drag &amp; drop a <code>.pem</code> / <code>.crt</code> / <code>.cer</code> file here, or click to browse</div>
-      <input type="file" id="cert-file" class="d-none" accept=".pem,.crt,.cer">
+      <div class="mt-1">Drag &amp; drop a <code>.pfx</code> / <code>.p12</code> / <code>.pem</code> / <code>.crt</code> file here, or click to browse</div>
+      <input type="file" id="cert-file" class="d-none" accept=".pfx,.p12,.pem,.crt,.cer">
     </div>
     <div class="row g-3">
+      <div class="col-md-4" id="password-group" style="display:none">
+        <label class="form-label">PFX Password <span class="text-danger">*</span></label>
+        <input class="form-control" id="cert-password" type="password" placeholder="Required for .pfx / .p12">
+      </div>
       <div class="col-md-6">
         <label class="form-label">Notes</label>
         <input class="form-control" id="cert-notes" placeholder="Optional description">
@@ -58,18 +62,27 @@ function handleDrop(e) {
   if (file) { fileInput.files = e.dataTransfer.files; updateDropZone(file); }
 }
 
+function isPfx(file) {
+  return file && (file.name.toLowerCase().endsWith('.pfx') || file.name.toLowerCase().endsWith('.p12'));
+}
+
 function updateDropZone(file) {
   if (!file) return;
   dropZone.innerHTML = `<i class="bi bi-file-earmark-lock fs-2 text-success"></i><div class="mt-1">${file.name} (${(file.size/1024).toFixed(1)} KB)</div>`;
+  document.getElementById('password-group').style.display = isPfx(file) ? '' : 'none';
   uploadBtn.disabled = false;
 }
 
 uploadBtn.addEventListener('click', async () => {
   const file = fileInput.files[0];
   if (!file) return alert('Select a file first');
+  if (isPfx(file) && !document.getElementById('cert-password').value)
+    return alert('A password is required for .pfx / .p12 files');
 
   const fd = new FormData();
   fd.append('file', file);
+  const password = document.getElementById('cert-password').value;
+  if (password) fd.append('password', password);
   const notes = document.getElementById('cert-notes').value;
   if (notes) fd.append('notes', notes);
 
@@ -111,7 +124,7 @@ async function loadCertificates() {
   }
   tbody.innerHTML = list.map(c => `
     <tr>
-      <td class="fw-semibold"><i class="bi bi-file-earmark-lock me-1 text-muted"></i>${c.filename}</td>
+      <td class="fw-semibold"><i class="bi bi-file-earmark-lock me-1 text-muted"></i>${c.filename}${c.has_password ? ' <span class="badge bg-secondary" title="PFX — password stored">PFX</span>' : ''}</td>
       <td>${c.subject_cn || '<span class="text-muted">—</span>'}</td>
       <td>${expiryBadge(c.not_valid_after)}</td>
       <td>${(c.file_size/1024).toFixed(1)} KB</td>
